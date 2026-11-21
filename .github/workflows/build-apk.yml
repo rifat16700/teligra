@@ -1,7 +1,7 @@
 name: Build Standalone Debug APK (arm64-v8a)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build:
