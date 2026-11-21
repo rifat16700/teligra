@@ -148,6 +148,11 @@ android {
         minSdkVersion 23
         targetSdkVersion 36
 
+        def appIdProp = getProps("APP_ID")?.toString()?.trim()
+        def appHashProp = getProps("APP_HASH")?.toString()?.trim()
+        buildConfigField "int", "APP_ID", (appIdProp ? appIdProp : "123456")
+        buildConfigField "String", "APP_HASH", "\"" + (appHashProp ? appHashProp : "00000000000000000000000000000000") + "\""
+
         vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']
 
         multiDexEnabled true
