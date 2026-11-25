@@ -1104,6 +1104,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 	}
 
 	private void startOutgoingCall() {
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipStartOutgoingCall(this);
+		// CUSTOM_HOOK_END
 		if (USE_CONNECTION_SERVICE && systemCallConnection != null) {
 			systemCallConnection.setDialing();
 		}
@@ -4161,6 +4164,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			} else {
 				builder.addAction(R.drawable.ic_call_end_white_24dp, LocaleController.getString(R.string.VoipEndCall), PendingIntent.getBroadcast(this, 0, endIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT));
 			}
+			// CUSTOM_HOOK_START
+			org.telegram.custom.aicall.AiCallHooks.onBuildCallNotification(this, builder);
+			// CUSTOM_HOOK_END
 			builder.setPriority(Notification.PRIORITY_MAX);
 		}
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
@@ -4714,6 +4720,10 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			showNotification(getTitle(), getRoundAvatarBitmap(this, currentAccount, chat));
 		}
 	}
+
+	// CUSTOM_HOOK_START
+	public void refreshCustomNotification() { showNotification(); }
+	// CUSTOM_HOOK_END
 
 	private void onTgVoipPreStop() {
 		/*if(BuildConfig.DEBUG){

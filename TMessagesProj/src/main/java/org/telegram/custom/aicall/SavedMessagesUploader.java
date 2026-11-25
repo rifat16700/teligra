@@ -21,6 +21,7 @@ public final class SavedMessagesUploader implements AiCallActionBus.CommandListe
     public static final String EXTRA_FILE_PATH = "file_path";
     public static final String EXTRA_DURATION_SEC = "duration_sec";
     public static final String EXTRA_MODE = "mode";
+    public static final String EXTRA_TRANSCRIPT = "transcript";
 
     @Override
     public void onAiCallCommand(String action, Bundle extras) {
@@ -41,6 +42,7 @@ public final class SavedMessagesUploader implements AiCallActionBus.CommandListe
         int account = extras.getInt(AiCallActionBus.EXTRA_ACCOUNT, UserConfig.selectedAccount);
         long durationSec = extras.getLong(EXTRA_DURATION_SEC, 0L);
         String mode = extras.getString(EXTRA_MODE, "CALL");
+        String transcript = extras.getString(EXTRA_TRANSCRIPT, "");
 
         long savedDialogId = UserConfig.getInstance(account).getClientUserId();
         if (savedDialogId == 0L) {
@@ -49,6 +51,13 @@ public final class SavedMessagesUploader implements AiCallActionBus.CommandListe
         }
 
         String caption = "Call Recording (" + durationSec + "s) · " + mode;
+        if (!TextUtils.isEmpty(transcript)) {
+            String trimmed = transcript.trim();
+            if (trimmed.length() > 600) {
+                trimmed = trimmed.substring(0, 597) + "...";
+            }
+            caption += "\n\nTranscript:\n" + trimmed;
+        }
         CustomLogger.i(TAG, "Uploading recording to Saved Messages: " + filePath + " | dialogId=" + savedDialogId);
 
         AndroidUtilities.runOnUIThread(() -> {

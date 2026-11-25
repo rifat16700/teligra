@@ -3,7 +3,7 @@
 **Purpose**: Track every hook location for disaster recovery after upstream rebase.
 
 **Last Updated**: 2026-11-26
-**Total Hooks**: 10
+**Total Hooks**: 14
 
 ---
 
@@ -21,6 +21,10 @@
 | 8 | Telegram/TMessagesProj/src/main/java/org/webrtc/voiceengine/WebRtcAudioManager.java | WebRtcAudioManager | isLowLatencyInputSupported | `if (org.telegram.custom.aicall.AiCallHooks.shouldForceJavaAudio()) return false;` | feature/ai-auto-answer | ✅ Active |
 | 9 | Telegram/TMessagesProj/src/main/java/org/webrtc/voiceengine/WebRtcAudioTrack.java | WebRtcAudioTrack.AudioTrackThread | run | `org.telegram.custom.aicall.AiCallHooks.onWebRtcPlayout(byteBuffer, sizeInBytes, sampleRate, audioTrack.getChannelCount());` | feature/ai-auto-answer | ✅ Active |
 | 10 | Telegram/TMessagesProj/src/main/java/org/webrtc/voiceengine/WebRtcAudioRecord.java | WebRtcAudioRecord.AudioRecordThread | run | `org.telegram.custom.aicall.AiCallHooks.onWebRtcRecord(byteBuffer, bytesRead, audioRecord.getSampleRate(), audioRecord.getChannelCount());` | feature/ai-auto-answer | ✅ Active |
+| 11 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | startOutgoingCall | `org.telegram.custom.aicall.AiCallHooks.onVoipStartOutgoingCall(this);` | feature/ai-auto-answer | ✅ Active |
+| 12 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | showNotification | `org.telegram.custom.aicall.AiCallHooks.onBuildCallNotification(this, builder);` | feature/ai-auto-answer | ✅ Active |
+| 13 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | refreshCustomNotification | `public void refreshCustomNotification() { showNotification(); }` | feature/ai-auto-answer | ✅ Active |
+| 14 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPActionsReceiver.java | VoIPActionsReceiver | onReceive | `if (org.telegram.custom.aicall.AiCallHooks.onNotificationAction(context, intent)) return;` | feature/ai-auto-answer | ✅ Active |
 
 ---
 

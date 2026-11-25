@@ -11,6 +11,7 @@ import com.neovisionaries.ws.client.WebSocketFrame;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.telegram.custom.utils.CustomLogger;
+import org.telegram.messenger.AndroidUtilities;
 
 import java.io.ByteArrayOutputStream;
 import java.net.URLEncoder;
@@ -250,6 +251,20 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
                 return;
             }
 
+            JSONObject toolCall = data.optJSONObject("toolCall");
+            if (toolCall != null) {
+                JSONArray fnCalls = toolCall.optJSONArray("functionCalls");
+                if (fnCalls != null) {
+                    for (int i = 0; i < fnCalls.length(); i++) {
+                        JSONObject fn = fnCalls.optJSONObject(i);
+                        if (fn != null && "end_call".equals(fn.optString("name"))) {
+                            CustomLogger.i(TAG, "Gemini requested end_call; scheduling hang-up after goodbye.");
+                            AndroidUtilities.runOnUIThread(() -> AiCallActionBus.dispatch(AiCallActionBus.ACTION_END_CALL, null), 1800L);
+                        }
+                    }
+                }
+            }
+
             JSONObject sc = data.optJSONObject("serverContent");
             if (sc == null) return;
 
@@ -346,6 +361,12 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
             }
             JSONObject sysPart = new JSONObject().put("text", sys.toString());
             setup.put("systemInstruction", new JSONObject().put("parts", new JSONArray().put(sysPart)));
+
+            JSONObject endCallDecl = new JSONObject()
+                    .put("name", "end_call")
+                    .put("description", "End the phone call politely once the conversation is finished or the caller says goodbye.");
+            JSONObject toolEntry = new JSONObject().put("functionDeclarations", new JSONArray().put(endCallDecl));
+            setup.put("tools", new JSONArray().put(toolEntry));
         }
 
         setup.put("inputAudioTranscription", new JSONObject());

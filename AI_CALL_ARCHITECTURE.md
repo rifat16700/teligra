@@ -56,5 +56,9 @@ This document tracks the architecture, user requirements, and phased implementat
   - `PcmResampler` (channel downmix + 48 kHz <-> 16 kHz / 24 kHz resampling).
   - `GeminiLiveSessionProvider` using pure WebSocket (`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.<ver>.GenerativeService.BidiGenerateContent`) with local BYOK API key, 6 selectable model presets + editable model ID, Owner Data + mid-call transcript system prompt, and barge-in buffer clearing.
 
-- **Phase 4 (Next)**:
-  - Live in-call & notification controls (`Take Over`, `Handover to AI`, `Anonymous Listen-In`, `Start AI Outgoing Call`), barge-in handling, AI `end_call` hangup, and Saved Messages summary + recording upload.
+- **Phase 4 (Implemented)**:
+  - `BackgroundTranscriptSession` buffering full-call transcripts during normal owner-handled calls so mid-call handover to AI passes full prior conversation context.
+  - Live call notification action buttons (`Take Over`, `Handover to AI`, `Listen Live / Mute Listen`, `Rec: ON/OFF`) wired through `VoIPActionsReceiver` & `AiCallActionBus`.
+  - Gemini `end_call` tool declaration for automatic polite hang-up.
+  - `Place AI Outgoing Call` launcher in `AiCallSettingsActivity` (`VoIPHelper.startCall` + outgoing goal prompt).
+  - Saved Messages recording caption includes transcript preview.

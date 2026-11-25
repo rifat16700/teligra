@@ -20,6 +20,7 @@ public final class AiAudioBridge {
     private final CallAudioRecorder recorder = new CallAudioRecorder();
     private final GeminiLiveSessionProvider geminiProvider = new GeminiLiveSessionProvider();
     private final LocalAudioTestProvider localTestProvider = new LocalAudioTestProvider();
+    private final BackgroundTranscriptSession backgroundTranscript = new BackgroundTranscriptSession();
     private volatile AiSessionProvider sessionProvider = localTestProvider;
 
     private final byte[] playoutScratch = new byte[SCRATCH_MAX_BYTES];
@@ -65,8 +66,11 @@ public final class AiAudioBridge {
             recorder.start(state.getCallId(), 48000);
         }
         if (state.isAiActive()) {
+            backgroundTranscript.stop();
             selectActiveSessionProvider();
             sessionProvider.startSession(state, ownerData, aiOutputBuffer);
+        } else if (state.isTranscriptBuffering()) {
+            backgroundTranscript.start(state);
         }
         CustomLogger.i(TAG, "Audio bridge started | ai=" + state.isAiActive()
                 + " | provider=" + sessionProvider.getClass().getSimpleName()
@@ -75,6 +79,7 @@ public final class AiAudioBridge {
     }
 
     public synchronized void onHandoverToAi(AiCallSessionState state, String ownerData) {
+        backgroundTranscript.stop();
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
         if (state != null) {
@@ -87,9 +92,14 @@ public final class AiAudioBridge {
         sessionProvider.stopSession();
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
+        AiCallSessionState state = AiCallController.getInstance().getState();
+        if (state.isTranscriptBuffering()) {
+            backgroundTranscript.start(state);
+        }
     }
 
     public synchronized File onCallEnded() {
+        backgroundTranscript.stop();
         sessionProvider.stopSession();
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
@@ -133,6 +143,8 @@ public final class AiAudioBridge {
                 byteBuffer.put(playoutScratch, 0, len);
                 byteBuffer.position(0);
             }
+        } else if (state.isTranscriptBuffering()) {
+            backgroundTranscript.onAudioPcm(playoutScratch, len, sampleRate, channels);
         }
     }
 
@@ -161,11 +173,19 @@ public final class AiAudioBridge {
             if (state.isRecordingActive()) {
                 recorder.onLocalPcm(recordScratch, len, sampleRate);
             }
-        } else if (state.isRecordingActive()) {
-            byteBuffer.position(0);
-            byteBuffer.get(recordScratch, 0, len);
-            byteBuffer.position(0);
-            recorder.onLocalPcm(recordScratch, len, sampleRate);
+        } else {
+            boolean needCopy = state.isRecordingActive() || state.isTranscriptBuffering();
+            if (needCopy) {
+                byteBuffer.position(0);
+                byteBuffer.get(recordScratch, 0, len);
+                byteBuffer.position(0);
+                if (state.isRecordingActive()) {
+                    recorder.onLocalPcm(recordScratch, len, sampleRate);
+                }
+                if (state.isTranscriptBuffering()) {
+                    backgroundTranscript.onAudioPcm(recordScratch, len, sampleRate, channels);
+                }
+            }
         }
     }
 

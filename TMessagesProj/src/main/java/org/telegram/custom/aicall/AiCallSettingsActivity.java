@@ -16,7 +16,11 @@ import android.widget.TextView;
 
 import androidx.core.content.ContextCompat;
 
+import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.ContactsController;
+import org.telegram.messenger.MessagesController;
+import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -29,6 +33,9 @@ import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.SeekBarView;
+import org.telegram.ui.Components.voip.VoIPHelper;
+
+import java.util.ArrayList;
 
 /**
  * Native Telegram settings fragment for configuring AI Auto-Answer Voice Calls,
@@ -44,6 +51,7 @@ public class AiCallSettingsActivity extends BaseFragment {
     private EditTextBoldCursor ownerDataInput;
     private EditTextBoldCursor apiKeyInput;
     private EditTextBoldCursor modelIdInput;
+    private EditTextBoldCursor outgoingGoalInput;
     private TextSettingsCell modelPresetCell;
     private TextSettingsCell voiceCell;
     private TextSettingsCell apiVersionCell;
@@ -315,8 +323,51 @@ public class AiCallSettingsActivity extends BaseFragment {
         });
         controlsSection.addView(backgroundTranscriptCheckCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
+        // --- Section 5: Place AI Outgoing Call ---
+        LinearLayout outgoingSection = createWhiteCard(context);
+        root.addView(outgoingSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        HeaderCell outgoingHeader = new HeaderCell(context);
+        outgoingHeader.setText("Place AI Outgoing Call");
+        outgoingSection.addView(outgoingHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        FrameLayout goalContainer = new FrameLayout(context);
+        goalContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21), AndroidUtilities.dp(8));
+        outgoingSection.addView(goalContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        outgoingGoalInput = new EditTextBoldCursor(context);
+        outgoingGoalInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        outgoingGoalInput.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        outgoingGoalInput.setHintColor(Theme.getColor(Theme.key_windowBackgroundWhiteHintText));
+        outgoingGoalInput.setCursorColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        outgoingGoalInput.setCursorSize(AndroidUtilities.dp(20));
+        outgoingGoalInput.setLineColors(
+                Theme.getColor(Theme.key_windowBackgroundWhiteInputField),
+                Theme.getColor(Theme.key_windowBackgroundWhiteInputFieldActivated),
+                Theme.getColor(Theme.key_text_RedRegular)
+        );
+        outgoingGoalInput.setHint("Optional call goal (e.g. Tell them I will call back in 15 mins)");
+        outgoingGoalInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        outgoingGoalInput.setMinLines(2);
+        outgoingGoalInput.setMaxLines(5);
+        goalContainer.addView(outgoingGoalInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        TextView startAiCallButton = new TextView(context);
+        startAiCallButton.setText("Choose Contact & Start AI Call");
+        startAiCallButton.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        startAiCallButton.setGravity(Gravity.CENTER);
+        startAiCallButton.setTextColor(Theme.getColor(Theme.key_featuredStickers_buttonText));
+        startAiCallButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
+                AndroidUtilities.dp(8),
+                Theme.getColor(Theme.key_featuredStickers_addButton),
+                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)
+        ));
+        startAiCallButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16), AndroidUtilities.dp(10));
+        startAiCallButton.setOnClickListener(v -> showOutgoingContactPicker(context));
+        outgoingSection.addView(startAiCallButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 21, 8, 21, 16));
+
         TextInfoPrivacyCell statusFooter = new TextInfoPrivacyCell(context);
-        statusFooter.setText("Phase 3 active: Auto-Answer (0-60s), Owner Data, Audio Bridge, Saved Messages Recorder, and Gemini Live WebSocket (BYOK) are ready.");
+        statusFooter.setText("All 4 Phases active: Auto-Answer (0-60s), Gemini Live WebSocket (BYOK), Bi-Directional Handover, Anonymous Listen-In, Saved Messages Recorder, and AI Outgoing Calls.");
         root.addView(statusFooter, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         fragmentView = scrollView;
@@ -370,6 +421,43 @@ public class AiCallSettingsActivity extends BaseFragment {
                 String voice = AiCallConfig.VOICE_NAMES[which];
                 config.setVoiceName(voice);
                 voiceCell.setTextAndValue("AI Voice", voice, true);
+            }
+        });
+        showDialog(builder.create());
+    }
+
+    private void showOutgoingContactPicker(Context context) {
+        saveOwnerDataQuietly();
+        if (!hasAudioPermission(context)) {
+            requestAudioPermission();
+            return;
+        }
+        ArrayList<TLRPC.TL_contact> rawContacts = ContactsController.getInstance(currentAccount).contacts;
+        ArrayList<TLRPC.User> users = new ArrayList<>();
+        ArrayList<CharSequence> names = new ArrayList<>();
+        if (rawContacts != null) {
+            for (TLRPC.TL_contact c : rawContacts) {
+                TLRPC.User u = MessagesController.getInstance(currentAccount).getUser(c.user_id);
+                if (u != null && !u.bot && !u.self) {
+                    users.add(u);
+                    names.add(ContactsController.formatName(u.first_name, u.last_name));
+                }
+            }
+        }
+        if (users.isEmpty()) {
+            BulletinFactory.of(this).createErrorBulletin("No contacts found to call").show();
+            return;
+        }
+        String goal = outgoingGoalInput != null && outgoingGoalInput.getText() != null
+                ? outgoingGoalInput.getText().toString().trim()
+                : "";
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setTitle("Start AI Outgoing Call");
+        builder.setItems(names.toArray(new CharSequence[0]), (dialog, which) -> {
+            if (which >= 0 && which < users.size() && getParentActivity() != null) {
+                TLRPC.User target = users.get(which);
+                AiCallController.getInstance().prepareAiOutgoingCall(target.id, goal);
+                VoIPHelper.startCall(target, false, false, getParentActivity(), null, AccountInstance.getInstance(currentAccount));
             }
         });
         showDialog(builder.create());
