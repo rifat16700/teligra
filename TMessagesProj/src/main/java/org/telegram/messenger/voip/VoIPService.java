@@ -4281,6 +4281,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 
 	@Override
 	public void onDestroy() {
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipDestroy(this);
+		// CUSTOM_HOOK_END
 		if (BuildVars.LOGS_ENABLED) {
 			FileLog.d("=============== VoIPService STOPPING ===============");
 		}
@@ -4455,6 +4458,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 	}
 
 	public void acceptIncomingCall() {
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipAcceptIncomingCall(this);
+		// CUSTOM_HOOK_END
 		updateCurrentForegroundType();
 		MessagesController.getInstance(currentAccount).ignoreSetOnline = false;
 		stopRinging();
@@ -4659,6 +4665,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			FileLog.d("starting ringing for call " + privateCall.id);
 		}
 		dispatchStateChanged(STATE_WAITING_INCOMING);
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipStartRinging(this);
+		// CUSTOM_HOOK_END
 		if (!notificationsDisabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
 			showIncomingNotification(ContactsController.formatName(user.first_name, user.last_name), user, privateCall.video, 0);
 			if (BuildVars.LOGS_ENABLED) {
