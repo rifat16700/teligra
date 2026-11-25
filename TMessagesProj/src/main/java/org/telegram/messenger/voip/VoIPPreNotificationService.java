@@ -423,6 +423,9 @@ public class VoIPPreNotificationService { // } extends Service implements AudioM
             final NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             nm.notify(VoIPService.ID_INCOMING_CALL_PRENOTIFICATION, makeNotification(context, account, user_id, call.id, video));
             startRinging(context, account, user_id);
+            // CUSTOM_HOOK_START
+            org.telegram.custom.aicall.AiCallHooks.onPreNotificationShow(context, account, user_id, call.id, video);
+            // CUSTOM_HOOK_END
         });
     }
 
@@ -589,6 +592,9 @@ public class VoIPPreNotificationService { // } extends Service implements AudioM
         final NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.cancel(VoIPService.ID_INCOMING_CALL_PRENOTIFICATION);
         stopRinging();
+        // CUSTOM_HOOK_START
+        org.telegram.custom.aicall.AiCallHooks.onPreNotificationDismiss(answered);
+        // CUSTOM_HOOK_END
         if (!answered) {
             for (int i = 0; i < UserConfig.MAX_ACCOUNT_COUNT; ++i) {
                 MessagesController.getInstance(i).ignoreSetOnline = false;

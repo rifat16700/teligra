@@ -11,6 +11,9 @@ import android.content.Intent;
 public class VoIPActionsReceiver extends BroadcastReceiver {
 	@Override
 	public void onReceive(Context context, Intent intent) {
+		// CUSTOM_HOOK_START
+		if (org.telegram.custom.aicall.AiCallHooks.onNotificationAction(context, intent)) return;
+		// CUSTOM_HOOK_END
 		if (!intent.hasExtra("group_call_invite_msg_id") && VoIPService.getSharedInstance() != null) {
 			VoIPService.getSharedInstance().handleNotificationAction(intent);
 		} else {

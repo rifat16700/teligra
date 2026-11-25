@@ -173,6 +173,9 @@ public class WebRtcAudioTrack {
         // Upon return, the buffer position will have been advanced to reflect
         // the amount of data that was successfully written to the AudioTrack.
         assertTrue(sizeInBytes <= byteBuffer.remaining());
+        // CUSTOM_HOOK_START
+        org.telegram.custom.aicall.AiCallHooks.onWebRtcPlayout(byteBuffer, sizeInBytes, sampleRate, audioTrack.getChannelCount());
+        // CUSTOM_HOOK_END
         if (speakerMute) {
           byteBuffer.clear();
           byteBuffer.put(emptyBytes);

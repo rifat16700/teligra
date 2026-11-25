@@ -257,6 +257,9 @@ public class WebRtcAudioManager {
   // TODO(henrika): remove the hardcoded false return value when OpenSL ES
   // input performance has been evaluated and tested more.
   public boolean isLowLatencyInputSupported() {
+    // CUSTOM_HOOK_START
+    if (org.telegram.custom.aicall.AiCallHooks.shouldForceJavaAudio()) return false;
+    // CUSTOM_HOOK_END
     // TODO(henrika): investigate if some sort of device list is needed here
     // as well. The NDK doc states that: "As of API level 21, lower latency
     // audio input is supported on select devices. To take advantage of this

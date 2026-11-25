@@ -1104,6 +1104,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 	}
 
 	private void startOutgoingCall() {
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipStartOutgoingCall(this);
+		// CUSTOM_HOOK_END
 		if (USE_CONNECTION_SERVICE && systemCallConnection != null) {
 			systemCallConnection.setDialing();
 		}
@@ -4161,6 +4164,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			} else {
 				builder.addAction(R.drawable.ic_call_end_white_24dp, LocaleController.getString(R.string.VoipEndCall), PendingIntent.getBroadcast(this, 0, endIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT));
 			}
+			// CUSTOM_HOOK_START
+			org.telegram.custom.aicall.AiCallHooks.onBuildCallNotification(this, builder);
+			// CUSTOM_HOOK_END
 			builder.setPriority(Notification.PRIORITY_MAX);
 		}
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
@@ -4281,6 +4287,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 
 	@Override
 	public void onDestroy() {
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipDestroy(this);
+		// CUSTOM_HOOK_END
 		if (BuildVars.LOGS_ENABLED) {
 			FileLog.d("=============== VoIPService STOPPING ===============");
 		}
@@ -4455,6 +4464,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 	}
 
 	public void acceptIncomingCall() {
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipAcceptIncomingCall(this);
+		// CUSTOM_HOOK_END
 		updateCurrentForegroundType();
 		MessagesController.getInstance(currentAccount).ignoreSetOnline = false;
 		stopRinging();
@@ -4659,6 +4671,9 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			FileLog.d("starting ringing for call " + privateCall.id);
 		}
 		dispatchStateChanged(STATE_WAITING_INCOMING);
+		// CUSTOM_HOOK_START
+		org.telegram.custom.aicall.AiCallHooks.onVoipStartRinging(this);
+		// CUSTOM_HOOK_END
 		if (!notificationsDisabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
 			showIncomingNotification(ContactsController.formatName(user.first_name, user.last_name), user, privateCall.video, 0);
 			if (BuildVars.LOGS_ENABLED) {
@@ -4705,6 +4720,10 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			showNotification(getTitle(), getRoundAvatarBitmap(this, currentAccount, chat));
 		}
 	}
+
+	// CUSTOM_HOOK_START
+	public void refreshCustomNotification() { showNotification(); }
+	// CUSTOM_HOOK_END
 
 	private void onTgVoipPreStop() {
 		/*if(BuildConfig.DEBUG){
