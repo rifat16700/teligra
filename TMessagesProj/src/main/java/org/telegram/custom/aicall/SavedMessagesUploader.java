@@ -58,6 +58,7 @@ public final class SavedMessagesUploader implements AiCallActionBus.CommandListe
             }
             caption += "\n\nTranscript:\n" + trimmed;
         }
+        final String finalCaption = caption;
         CustomLogger.i(TAG, "Uploading recording to Saved Messages: " + filePath + " | dialogId=" + savedDialogId);
 
         AndroidUtilities.runOnUIThread(() -> {
@@ -67,7 +68,7 @@ public final class SavedMessagesUploader implements AiCallActionBus.CommandListe
                         filePath,
                         filePath,
                         null,
-                        caption,
+                        finalCaption,
                         "audio/wav",
                         savedDialogId,
                         null,
