@@ -18,11 +18,13 @@ import androidx.core.content.ContextCompat;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.ui.ActionBar.ActionBar;
+import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.Cells.TextCheckCell;
 import org.telegram.ui.Cells.TextInfoPrivacyCell;
+import org.telegram.ui.Cells.TextSettingsCell;
 import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
@@ -30,7 +32,7 @@ import org.telegram.ui.Components.SeekBarView;
 
 /**
  * Native Telegram settings fragment for configuring AI Auto-Answer Voice Calls,
- * ring delay (0s - 60s), Owner Data / knowledge context, and composable call options.
+ * ring delay (0s - 60s), Owner Data / knowledge context, and BYOK Gemini Live WebSocket settings.
  */
 public class AiCallSettingsActivity extends BaseFragment {
 
@@ -40,6 +42,11 @@ public class AiCallSettingsActivity extends BaseFragment {
     private TextView delayValueView;
     private SeekBarView delaySeekBar;
     private EditTextBoldCursor ownerDataInput;
+    private EditTextBoldCursor apiKeyInput;
+    private EditTextBoldCursor modelIdInput;
+    private TextSettingsCell modelPresetCell;
+    private TextSettingsCell voiceCell;
+    private TextSettingsCell apiVersionCell;
     private TextCheckCell autoRecordCheckCell;
     private TextCheckCell anonymousListenCheckCell;
     private TextCheckCell backgroundTranscriptCheckCell;
@@ -185,7 +192,95 @@ public class AiCallSettingsActivity extends BaseFragment {
         ownerInfo.setText("This owner data is sent to the AI session when answering or taking over a call so it responds strictly from your saved context.");
         root.addView(ownerInfo, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-        // --- Section 3: Composable Call Controls ---
+        // --- Section 3: Gemini Live AI Connection (BYOK Local WebSocket) ---
+        LinearLayout aiSection = createWhiteCard(context);
+        root.addView(aiSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        HeaderCell aiHeader = new HeaderCell(context);
+        aiHeader.setText("Gemini Live AI Connection (Local BYOK)");
+        aiSection.addView(aiHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        FrameLayout apiKeyContainer = new FrameLayout(context);
+        apiKeyContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21), AndroidUtilities.dp(6));
+        aiSection.addView(apiKeyContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        apiKeyInput = new EditTextBoldCursor(context);
+        apiKeyInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        apiKeyInput.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        apiKeyInput.setHintColor(Theme.getColor(Theme.key_windowBackgroundWhiteHintText));
+        apiKeyInput.setHeaderHintColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader));
+        apiKeyInput.setCursorColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        apiKeyInput.setCursorSize(AndroidUtilities.dp(20));
+        apiKeyInput.setLineColors(
+                Theme.getColor(Theme.key_windowBackgroundWhiteInputField),
+                Theme.getColor(Theme.key_windowBackgroundWhiteInputFieldActivated),
+                Theme.getColor(Theme.key_text_RedRegular)
+        );
+        apiKeyInput.setHint("Your Google AI Studio API Key (AIzaSy...)");
+        apiKeyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        apiKeyInput.setSingleLine(true);
+        apiKeyInput.setText(config.getApiKey());
+        apiKeyContainer.addView(apiKeyInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        modelPresetCell = new TextSettingsCell(context);
+        modelPresetCell.setTextAndValue("Live Model Preset", config.getPresetLabelForModel(config.getModelId()), true);
+        modelPresetCell.setOnClickListener(v -> showModelPresetDialog(context, config));
+        aiSection.addView(modelPresetCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        FrameLayout modelIdContainer = new FrameLayout(context);
+        modelIdContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21), AndroidUtilities.dp(6));
+        aiSection.addView(modelIdContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        modelIdInput = new EditTextBoldCursor(context);
+        modelIdInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        modelIdInput.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        modelIdInput.setHintColor(Theme.getColor(Theme.key_windowBackgroundWhiteHintText));
+        modelIdInput.setCursorColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        modelIdInput.setCursorSize(AndroidUtilities.dp(20));
+        modelIdInput.setLineColors(
+                Theme.getColor(Theme.key_windowBackgroundWhiteInputField),
+                Theme.getColor(Theme.key_windowBackgroundWhiteInputFieldActivated),
+                Theme.getColor(Theme.key_text_RedRegular)
+        );
+        modelIdInput.setHint("Exact Model ID (e.g. gemini-3.8-live)");
+        modelIdInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        modelIdInput.setSingleLine(true);
+        modelIdInput.setText(config.getModelId());
+        modelIdContainer.addView(modelIdInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        voiceCell = new TextSettingsCell(context);
+        voiceCell.setTextAndValue("AI Voice", config.getVoiceName(), true);
+        voiceCell.setOnClickListener(v -> showVoiceDialog(context, config));
+        aiSection.addView(voiceCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        apiVersionCell = new TextSettingsCell(context);
+        apiVersionCell.setTextAndValue("WebSocket API Version", config.getApiVersion(), false);
+        apiVersionCell.setOnClickListener(v -> showApiVersionDialog(context, config));
+        aiSection.addView(apiVersionCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        TextView saveAiButton = new TextView(context);
+        saveAiButton.setText("Save API Key & AI Settings");
+        saveAiButton.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        saveAiButton.setGravity(Gravity.CENTER);
+        saveAiButton.setTextColor(Theme.getColor(Theme.key_featuredStickers_buttonText));
+        saveAiButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
+                AndroidUtilities.dp(8),
+                Theme.getColor(Theme.key_featuredStickers_addButton),
+                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)
+        ));
+        saveAiButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16), AndroidUtilities.dp(10));
+        saveAiButton.setOnClickListener(v -> {
+            saveOwnerDataQuietly();
+            modelPresetCell.setTextAndValue("Live Model Preset", config.getPresetLabelForModel(config.getModelId()), true);
+            BulletinFactory.of(this).createSimpleBulletin(org.telegram.messenger.R.raw.contact_check, "AI WebSocket settings saved locally").show();
+        });
+        aiSection.addView(saveAiButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 21, 8, 21, 16));
+
+        TextInfoPrivacyCell aiInfo = new TextInfoPrivacyCell(context);
+        aiInfo.setText("Uses direct Gemini Live WebSocket (wss://) with your own locally stored API key. No developer server or shared billing is used. Leave key blank to use the local test chime.");
+        root.addView(aiInfo, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        // --- Section 4: Composable Call Controls ---
         LinearLayout controlsSection = createWhiteCard(context);
         root.addView(controlsSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
@@ -221,7 +316,7 @@ public class AiCallSettingsActivity extends BaseFragment {
         controlsSection.addView(backgroundTranscriptCheckCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         TextInfoPrivacyCell statusFooter = new TextInfoPrivacyCell(context);
-        statusFooter.setText("Phase 1 active: Settings, Owner Data, and 0-60s Auto-Answer trigger are live. Audio engine & AI API bridge follow in Phases 2-3.");
+        statusFooter.setText("Phase 3 active: Auto-Answer (0-60s), Owner Data, Audio Bridge, Saved Messages Recorder, and Gemini Live WebSocket (BYOK) are ready.");
         root.addView(statusFooter, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         fragmentView = scrollView;
@@ -235,9 +330,62 @@ public class AiCallSettingsActivity extends BaseFragment {
     }
 
     private void saveOwnerDataQuietly() {
+        AiCallConfig config = AiCallConfig.getInstance();
         if (ownerDataInput != null && ownerDataInput.getText() != null) {
-            AiCallConfig.getInstance().setOwnerData(ownerDataInput.getText().toString().trim());
+            config.setOwnerData(ownerDataInput.getText().toString().trim());
         }
+        if (apiKeyInput != null && apiKeyInput.getText() != null) {
+            config.setApiKey(apiKeyInput.getText().toString().trim());
+        }
+        if (modelIdInput != null && modelIdInput.getText() != null) {
+            String typed = modelIdInput.getText().toString().trim();
+            if (!typed.isEmpty()) {
+                config.setModelId(typed);
+            }
+        }
+    }
+
+    private void showModelPresetDialog(Context context, AiCallConfig config) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setTitle("Select Gemini Live Model");
+        builder.setItems(AiCallConfig.MODEL_LABELS, (dialog, which) -> {
+            if (which >= 0 && which < AiCallConfig.MODEL_IDS.length) {
+                String selectedId = AiCallConfig.MODEL_IDS[which];
+                config.applyModelPreset(selectedId);
+                if (modelIdInput != null) {
+                    modelIdInput.setText(selectedId);
+                }
+                modelPresetCell.setTextAndValue("Live Model Preset", AiCallConfig.MODEL_LABELS[which], true);
+                apiVersionCell.setTextAndValue("WebSocket API Version", config.getApiVersion(), false);
+            }
+        });
+        showDialog(builder.create());
+    }
+
+    private void showVoiceDialog(Context context, AiCallConfig config) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setTitle("Select AI Voice");
+        builder.setItems(AiCallConfig.VOICE_NAMES, (dialog, which) -> {
+            if (which >= 0 && which < AiCallConfig.VOICE_NAMES.length) {
+                String voice = AiCallConfig.VOICE_NAMES[which];
+                config.setVoiceName(voice);
+                voiceCell.setTextAndValue("AI Voice", voice, true);
+            }
+        });
+        showDialog(builder.create());
+    }
+
+    private void showApiVersionDialog(Context context, AiCallConfig config) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setTitle("Select WebSocket API Version");
+        builder.setItems(AiCallConfig.API_VERSIONS, (dialog, which) -> {
+            if (which >= 0 && which < AiCallConfig.API_VERSIONS.length) {
+                String ver = AiCallConfig.API_VERSIONS[which];
+                config.setApiVersion(ver);
+                apiVersionCell.setTextAndValue("WebSocket API Version", ver, false);
+            }
+        });
+        showDialog(builder.create());
     }
 
     private void updateDelayLabel(int seconds) {

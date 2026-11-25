@@ -52,8 +52,9 @@ This document tracks the architecture, user requirements, and phased implementat
   - `PcmRingBuffer`, `AiSessionProvider`, `LocalAudioTestProvider`, `CallAudioRecorder`, `SavedMessagesUploader`, `AiAudioBridge`.
   - Java WebRTC audio hooks (`WebRtcAudioManager`, `WebRtcAudioTrack`, `WebRtcAudioRecord`) enforcing Java audio path, capturing caller PCM, injecting AI/test PCM, supporting `anonymousListenIn` live monitoring, and auto-recording WAV calls to Saved Messages.
 
-- **Phase 3 (Next)**:
-  - `PcmResampler` (48 kHz <-> 16 kHz / 24 kHz) and live WebSocket `AiSessionProvider` implementation connecting to the AI Voice API / backend proxy with Owner Data + mid-call transcript context.
+- **Phase 3 (Implemented)**:
+  - `PcmResampler` (channel downmix + 48 kHz <-> 16 kHz / 24 kHz resampling).
+  - `GeminiLiveSessionProvider` using pure WebSocket (`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.<ver>.GenerativeService.BidiGenerateContent`) with local BYOK API key, 6 selectable model presets + editable model ID, Owner Data + mid-call transcript system prompt, and barge-in buffer clearing.
 
-- **Phase 4**:
+- **Phase 4 (Next)**:
   - Live in-call & notification controls (`Take Over`, `Handover to AI`, `Anonymous Listen-In`, `Start AI Outgoing Call`), barge-in handling, AI `end_call` hangup, and Saved Messages summary + recording upload.

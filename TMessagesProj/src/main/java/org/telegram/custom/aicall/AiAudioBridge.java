@@ -18,7 +18,9 @@ public final class AiAudioBridge {
 
     private final PcmRingBuffer aiOutputBuffer = new PcmRingBuffer();
     private final CallAudioRecorder recorder = new CallAudioRecorder();
-    private volatile AiSessionProvider sessionProvider = new LocalAudioTestProvider();
+    private final GeminiLiveSessionProvider geminiProvider = new GeminiLiveSessionProvider();
+    private final LocalAudioTestProvider localTestProvider = new LocalAudioTestProvider();
+    private volatile AiSessionProvider sessionProvider = localTestProvider;
 
     private final byte[] playoutScratch = new byte[SCRATCH_MAX_BYTES];
     private final byte[] recordScratch = new byte[SCRATCH_MAX_BYTES];
@@ -44,6 +46,16 @@ public final class AiAudioBridge {
         return aiOutputBuffer;
     }
 
+    private void selectActiveSessionProvider() {
+        String apiKey = AiCallConfig.getInstance().getApiKey();
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            this.sessionProvider = geminiProvider;
+        } else {
+            this.sessionProvider = localTestProvider;
+            CustomLogger.w(TAG, "No Gemini API key configured locally; falling back to LocalAudioTestProvider.");
+        }
+    }
+
     public synchronized void onCallStarted(AiCallSessionState state, String ownerData) {
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
@@ -53,9 +65,11 @@ public final class AiAudioBridge {
             recorder.start(state.getCallId(), 48000);
         }
         if (state.isAiActive()) {
+            selectActiveSessionProvider();
             sessionProvider.startSession(state, ownerData, aiOutputBuffer);
         }
         CustomLogger.i(TAG, "Audio bridge started | ai=" + state.isAiActive()
+                + " | provider=" + sessionProvider.getClass().getSimpleName()
                 + " | record=" + state.isRecordingActive()
                 + " | listenIn=" + state.isAnonymousListenIn());
     }
@@ -64,6 +78,7 @@ public final class AiAudioBridge {
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
         if (state != null) {
+            selectActiveSessionProvider();
             sessionProvider.startSession(state, ownerData, aiOutputBuffer);
         }
     }
@@ -128,6 +143,9 @@ public final class AiAudioBridge {
         AiCallSessionState state = AiCallController.getInstance().getState();
         if (state.getMode() == AiCallSessionState.Mode.IDLE || byteBuffer == null || sizeInBytes <= 0) {
             return;
+        }
+        if (sampleRate > 0) {
+            geminiProvider.setTargetOutputSampleRate(sampleRate);
         }
         int len = Math.min(sizeInBytes, SCRATCH_MAX_BYTES);
 
