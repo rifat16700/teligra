@@ -3,7 +3,7 @@
 **Purpose**: Track every hook location for disaster recovery after upstream rebase.
 
 **Last Updated**: 2026-11-26
-**Total Hooks**: 7
+**Total Hooks**: 10
 
 ---
 
@@ -18,6 +18,9 @@
 | 5 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | startRinging | `org.telegram.custom.aicall.AiCallHooks.onVoipStartRinging(this);` | feature/ai-auto-answer | ✅ Active |
 | 6 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | acceptIncomingCall | `org.telegram.custom.aicall.AiCallHooks.onVoipAcceptIncomingCall(this);` | feature/ai-auto-answer | ✅ Active |
 | 7 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | onDestroy | `org.telegram.custom.aicall.AiCallHooks.onVoipDestroy(this);` | feature/ai-auto-answer | ✅ Active |
+| 8 | Telegram/TMessagesProj/src/main/java/org/webrtc/voiceengine/WebRtcAudioManager.java | WebRtcAudioManager | isLowLatencyInputSupported | `if (org.telegram.custom.aicall.AiCallHooks.shouldForceJavaAudio()) return false;` | feature/ai-auto-answer | ✅ Active |
+| 9 | Telegram/TMessagesProj/src/main/java/org/webrtc/voiceengine/WebRtcAudioTrack.java | WebRtcAudioTrack.AudioTrackThread | run | `org.telegram.custom.aicall.AiCallHooks.onWebRtcPlayout(byteBuffer, sizeInBytes, sampleRate, audioTrack.getChannelCount());` | feature/ai-auto-answer | ✅ Active |
+| 10 | Telegram/TMessagesProj/src/main/java/org/webrtc/voiceengine/WebRtcAudioRecord.java | WebRtcAudioRecord.AudioRecordThread | run | `org.telegram.custom.aicall.AiCallHooks.onWebRtcRecord(byteBuffer, bytesRead, audioRecord.getSampleRate(), audioRecord.getChannelCount());` | feature/ai-auto-answer | ✅ Active |
 
 ---
 

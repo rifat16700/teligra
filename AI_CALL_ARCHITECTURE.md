@@ -48,10 +48,11 @@ This document tracks the architecture, user requirements, and phased implementat
   - `feature/ai-auto-answer` branch, `AiCallConfig`, `AiCallSessionState`, `AiCallActionBus`, `AiCallController`, `AiCallSettingsActivity`, `AiCallHooks`.
   - Settings menu entry, 0–60s ring delay, Owner Data editor, feature toggles, and incoming call auto-answer hooks in `VoIPPreNotificationService` and `VoIPService`.
 
-- **Phase 2 (Next)**:
-  - Java WebRTC audio bridge (`AiAudioBridge`, `PcmRingBuffer`), `WebRtcAudioManager` Java audio path enforcement, `WebRtcAudioTrack` capture + selective speaker mute (supporting `anonymousListenIn`), `WebRtcAudioRecord` PCM injection, local audio loopback/WAV test, and default call audio recorder saving to Saved Messages.
+- **Phase 2 (Implemented)**:
+  - `PcmRingBuffer`, `AiSessionProvider`, `LocalAudioTestProvider`, `CallAudioRecorder`, `SavedMessagesUploader`, `AiAudioBridge`.
+  - Java WebRTC audio hooks (`WebRtcAudioManager`, `WebRtcAudioTrack`, `WebRtcAudioRecord`) enforcing Java audio path, capturing caller PCM, injecting AI/test PCM, supporting `anonymousListenIn` live monitoring, and auto-recording WAV calls to Saved Messages.
 
-- **Phase 3**:
+- **Phase 3 (Next)**:
   - `PcmResampler` (48 kHz <-> 16 kHz / 24 kHz) and live WebSocket `AiSessionProvider` implementation connecting to the AI Voice API / backend proxy with Owner Data + mid-call transcript context.
 
 - **Phase 4**:

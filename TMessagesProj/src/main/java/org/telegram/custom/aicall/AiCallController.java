@@ -13,6 +13,9 @@ import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.voip.VoIPPreNotificationService;
 import org.telegram.messenger.voip.VoIPService;
 import org.telegram.tgnet.TLRPC;
+import org.webrtc.voiceengine.WebRtcAudioManager;
+
+import java.io.File;
 
 /**
  * Coordinates AI call lifecycle, 0-60s auto-answer scheduling,
@@ -23,11 +26,20 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
 
     private static AiCallController instance;
     private final AiCallSessionState state = new AiCallSessionState();
+    private final SavedMessagesUploader savedMessagesUploader = new SavedMessagesUploader();
     private Runnable pendingAutoAnswerRunnable;
     private long scheduledCallId = 0L;
 
     private AiCallController() {
         AiCallActionBus.registerListener(this);
+        AiCallActionBus.registerListener(savedMessagesUploader);
+    }
+
+    public boolean shouldForceJavaAudio() {
+        AiCallConfig config = AiCallConfig.getInstance();
+        return config.isAutoAnswerEnabled()
+                || config.isAutoRecordToSavedMessages()
+                || state.getMode() != AiCallSessionState.Mode.IDLE;
     }
 
     public static synchronized AiCallController getInstance() {
@@ -42,6 +54,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
     }
 
     public synchronized void onPreNotificationIncoming(Context context, int account, long userId, long callId, boolean video) {
+        WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(shouldForceJavaAudio());
         AiCallConfig config = AiCallConfig.getInstance();
         if (!config.isAutoAnswerEnabled()) {
             CustomLogger.d(TAG, "Auto-answer disabled; skipping pre-notification timer.");
@@ -71,6 +84,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
 
     public synchronized void onVoipServiceRinging(VoIPService service) {
         if (service == null) return;
+        WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(shouldForceJavaAudio());
         AiCallConfig config = AiCallConfig.getInstance();
         if (!config.isAutoAnswerEnabled()) {
             return;
@@ -126,6 +140,9 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
             state.setAnonymousListenIn(config.isAnonymousListenDefault());
         }
 
+        WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(shouldForceJavaAudio());
+        AiAudioBridge.getInstance().onCallStarted(state, config.getOwnerData());
+
         CustomLogger.i(TAG, "Call accepted | mode=" + state.getMode()
                 + " | record=" + state.isRecordingActive()
                 + " | transcript=" + state.isTranscriptBuffering()
@@ -134,15 +151,21 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
 
     public synchronized void onVoipServiceDestroyed(VoIPService service) {
         cancelPendingAutoAnswer();
-        if (state.isRecordingActive()) {
+        File recordedFile = AiAudioBridge.getInstance().onCallEnded();
+        long durationSec = AiAudioBridge.getInstance().getLastRecordedDurationSeconds();
+        if (state.isRecordingActive() && recordedFile != null && recordedFile.exists()) {
             Bundle extras = new Bundle();
             extras.putLong(AiCallActionBus.EXTRA_CALL_ID, state.getCallId());
             extras.putInt(AiCallActionBus.EXTRA_ACCOUNT, state.getAccount());
             extras.putLong(AiCallActionBus.EXTRA_USER_ID, state.getPeerUserId());
-            CustomLogger.i(TAG, "Call ended with recordingActive=true; dispatching Saved Messages export action.");
+            extras.putString(SavedMessagesUploader.EXTRA_FILE_PATH, recordedFile.getAbsolutePath());
+            extras.putLong(SavedMessagesUploader.EXTRA_DURATION_SEC, durationSec);
+            extras.putString(SavedMessagesUploader.EXTRA_MODE, state.getMode().name());
+            CustomLogger.i(TAG, "Call ended with recording; dispatching Saved Messages export action.");
             AiCallActionBus.dispatch(AiCallActionBus.ACTION_SEND_RECORDING_TO_SAVED_MESSAGES, extras);
         }
         state.reset();
+        WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(shouldForceJavaAudio());
     }
 
     public synchronized void takeOverByOwner() {
@@ -150,6 +173,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         state.setMode(AiCallSessionState.Mode.OWNER_HANDLING);
         state.setAiActive(false);
         state.setAnonymousListenIn(false);
+        AiAudioBridge.getInstance().onTakeOverByOwner();
         CustomLogger.i(TAG, "Owner took over callId=" + state.getCallId());
     }
 
@@ -158,6 +182,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         state.setMode(AiCallSessionState.Mode.AI_HANDLING);
         state.setAiActive(true);
         state.setAnonymousListenIn(AiCallConfig.getInstance().isAnonymousListenDefault());
+        AiAudioBridge.getInstance().onHandoverToAi(state, AiCallConfig.getInstance().getOwnerData());
         CustomLogger.i(TAG, "Call handed over to AI | callId=" + state.getCallId()
                 + " | bufferedTranscriptLines=" + state.getTranscriptSnapshot().size());
     }

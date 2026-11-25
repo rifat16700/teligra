@@ -8,6 +8,7 @@ import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.UItem;
 import org.telegram.ui.SettingsActivity;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
 /**
@@ -61,5 +62,17 @@ public final class AiCallHooks {
 
     public static void onVoipDestroy(VoIPService service) {
         AiCallController.getInstance().onVoipServiceDestroyed(service);
+    }
+
+    public static boolean shouldForceJavaAudio() {
+        return AiCallController.getInstance().shouldForceJavaAudio();
+    }
+
+    public static void onWebRtcPlayout(ByteBuffer byteBuffer, int sizeInBytes, int sampleRate, int channels) {
+        AiAudioBridge.getInstance().onWebRtcPlayout(byteBuffer, sizeInBytes, sampleRate, channels);
+    }
+
+    public static void onWebRtcRecord(ByteBuffer byteBuffer, int sizeInBytes, int sampleRate, int channels) {
+        AiAudioBridge.getInstance().onWebRtcRecord(byteBuffer, sizeInBytes, sampleRate, channels);
     }
 }
