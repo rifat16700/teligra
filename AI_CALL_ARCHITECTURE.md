@@ -62,3 +62,9 @@ This document tracks the architecture, user requirements, and phased implementat
   - Gemini `end_call` tool declaration for automatic polite hang-up.
   - `Place AI Outgoing Call` launcher in `AiCallSettingsActivity` (`VoIPHelper.startCall` + outgoing goal prompt).
   - Saved Messages recording caption includes transcript preview.
+
+- **Phase 5 (Implemented)**:
+  - **Audio Fixes**: `AiMonitorPlayer` (standalone `AudioTrack` outside WebRTC so AEC never cancels AI voice), 140ms jitter pre-buffer in `PcmRingBuffer`, stereo-aware `PcmResampler.monoToChannels`.
+  - **Dual-Model Multitasking (`DualModelOrchestrator`)**: `gemini-2.5-flash-native-audio-preview-12-2025` handles continuous speech listening, server end-of-turn detection, live transcription & phase summarization; finalized text feeds user's selected Voice model (e.g. `gemini-3.8-live`).
+  - **Multi-Handover Memory & Post-Call Report**: `CallContextMemory` + `PostCallSummaryGenerator` merges all AI & Owner phases into a detailed post-call explanation and serial-tagged `#nc-call-r` Saved Messages upload.
+  - **Chat-Style Live Calling UI (`AiCallChatFragment`) & Call History Replay (`AiCallHistoryActivity`, `AiCallDetailActivity`)** + 1-line `#nc-call-r` filter in Saved Messages (`ChatActivity.java`).

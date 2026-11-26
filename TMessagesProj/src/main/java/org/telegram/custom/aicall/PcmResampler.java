@@ -1,9 +1,9 @@
 package org.telegram.custom.aicall;
 
 /**
- * Pure-Java 16-bit little-endian PCM audio resampler and channel downmixer.
- * Bridges WebRTC audio rates (typically 48 kHz) with Gemini Live API
- * input (16 kHz) and output (24 kHz).
+ * Pure-Java 16-bit little-endian PCM audio resampler and channel converter.
+ * Bridges WebRTC audio rates/channels (48 kHz mono or stereo) with Gemini Live
+ * input (16 kHz mono) and output (24 kHz mono).
  */
 public final class PcmResampler {
 
@@ -41,6 +41,34 @@ public final class PcmResampler {
     }
 
     /**
+     * Converts mono 16-bit PCM into targetChannels interleaved 16-bit PCM
+     * so stereo WebRtcAudioRecord devices never play mono audio at 2x speed.
+     */
+    public static byte[] monoToChannels(byte[] monoPcm, int monoLen, int targetChannels) {
+        if (monoPcm == null || monoLen <= 0) {
+            return new byte[0];
+        }
+        int safeBytes = Math.min(monoLen, monoPcm.length) & ~1;
+        if (targetChannels <= 1) {
+            byte[] copy = new byte[safeBytes];
+            System.arraycopy(monoPcm, 0, copy, 0, safeBytes);
+            return copy;
+        }
+        int samples = safeBytes / 2;
+        byte[] out = new byte[samples * targetChannels * 2];
+        for (int i = 0; i < samples; i++) {
+            byte lo = monoPcm[i * 2];
+            byte hi = monoPcm[i * 2 + 1];
+            int base = i * targetChannels * 2;
+            for (int c = 0; c < targetChannels; c++) {
+                out[base + c * 2] = lo;
+                out[base + c * 2 + 1] = hi;
+            }
+        }
+        return out;
+    }
+
+    /**
      * Resamples 16-bit little-endian mono PCM from srcRate to dstRate.
      * Uses bucket averaging for downsampling and linear interpolation for upsampling.
      */
@@ -62,7 +90,6 @@ public final class PcmResampler {
         byte[] out = new byte[outSamples * 2];
 
         if (srcRate > dstRate) {
-            // Downsample with bucket averaging (e.g. 48000 -> 16000)
             double ratio = srcRate / (double) dstRate;
             for (int i = 0; i < outSamples; i++) {
                 int start = (int) Math.floor(i * ratio);
@@ -82,7 +109,6 @@ public final class PcmResampler {
                 out[i * 2 + 1] = (byte) ((sample >> 8) & 0xFF);
             }
         } else {
-            // Upsample with linear interpolation (e.g. 24000 -> 48000)
             double step = (inSamples - 1) / (double) Math.max(1, outSamples - 1);
             if (inSamples == 1) step = 0.0;
             for (int i = 0; i < outSamples; i++) {

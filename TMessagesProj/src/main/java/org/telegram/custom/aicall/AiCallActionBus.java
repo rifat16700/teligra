@@ -20,6 +20,7 @@ public final class AiCallActionBus {
     public static final String ACTION_TOGGLE_RECORDING = "org.telegram.custom.aicall.ACTION_TOGGLE_RECORDING";
     public static final String ACTION_START_AI_OUTGOING_CALL = "org.telegram.custom.aicall.ACTION_START_AI_OUTGOING_CALL";
     public static final String ACTION_SEND_RECORDING_TO_SAVED_MESSAGES = "org.telegram.custom.aicall.ACTION_SEND_RECORDING_TO_SAVED_MESSAGES";
+    public static final String ACTION_OPEN_CHAT_UI = "org.telegram.custom.aicall.ACTION_OPEN_CHAT_UI";
     public static final String ACTION_END_CALL = "org.telegram.custom.aicall.ACTION_END_CALL";
 
     public static final String EXTRA_ENABLED = "enabled";

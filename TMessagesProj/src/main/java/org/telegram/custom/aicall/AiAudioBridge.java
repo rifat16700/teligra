@@ -8,7 +8,8 @@ import java.util.Arrays;
 
 /**
  * Real-time Java audio bridge between WebRtcAudioTrack / WebRtcAudioRecord,
- * the active AiSessionProvider, anonymous live monitoring, and CallAudioRecorder.
+ * DualModelOrchestrator (or single/local fallback), standalone AiMonitorPlayer
+ * (AEC-safe anonymous listening), and CallAudioRecorder.
  */
 public final class AiAudioBridge {
     private static final String TAG = "AiAudioBridge";
@@ -16,11 +17,14 @@ public final class AiAudioBridge {
 
     private static AiAudioBridge instance;
 
+    private final CallContextMemory memory = new CallContextMemory();
     private final PcmRingBuffer aiOutputBuffer = new PcmRingBuffer();
     private final CallAudioRecorder recorder = new CallAudioRecorder();
-    private final GeminiLiveSessionProvider geminiProvider = new GeminiLiveSessionProvider();
+    private final AiMonitorPlayer monitorPlayer = new AiMonitorPlayer();
+
+    private final DualModelOrchestrator dualOrchestrator = new DualModelOrchestrator(memory);
+    private final GeminiLiveSessionProvider singleProvider = new GeminiLiveSessionProvider();
     private final LocalAudioTestProvider localTestProvider = new LocalAudioTestProvider();
-    private final BackgroundTranscriptSession backgroundTranscript = new BackgroundTranscriptSession();
     private volatile AiSessionProvider sessionProvider = localTestProvider;
 
     private final byte[] playoutScratch = new byte[SCRATCH_MAX_BYTES];
@@ -37,70 +41,92 @@ public final class AiAudioBridge {
         return instance;
     }
 
-    public void setSessionProvider(AiSessionProvider provider) {
-        if (provider != null) {
-            this.sessionProvider = provider;
-        }
+    public CallContextMemory getMemory() {
+        return memory;
     }
 
     public PcmRingBuffer getAiOutputBuffer() {
         return aiOutputBuffer;
     }
 
-    private void selectActiveSessionProvider() {
-        String apiKey = AiCallConfig.getInstance().getApiKey();
-        if (apiKey != null && !apiKey.trim().isEmpty()) {
-            this.sessionProvider = geminiProvider;
-        } else {
+    private AiSessionProvider selectActiveSessionProvider() {
+        AiCallConfig config = AiCallConfig.getInstance();
+        String apiKey = config.getApiKey();
+        if (apiKey == null || apiKey.trim().isEmpty()) {
             this.sessionProvider = localTestProvider;
             CustomLogger.w(TAG, "No Gemini API key configured locally; falling back to LocalAudioTestProvider.");
+        } else if (config.isDualModelEnabled()) {
+            this.sessionProvider = dualOrchestrator;
+        } else {
+            this.sessionProvider = singleProvider;
         }
+        return this.sessionProvider;
     }
 
-    public synchronized void onCallStarted(AiCallSessionState state, String ownerData) {
+    public synchronized void onCallStarted(AiCallSessionState state, String ownerData, String peerName) {
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
+        monitorPlayer.stop();
         if (state == null) return;
+
+        memory.reset(state.getCallId(), state.getPeerUserId(), peerName);
 
         if (state.isRecordingActive()) {
             recorder.start(state.getCallId(), 48000);
         }
-        if (state.isAiActive()) {
-            backgroundTranscript.stop();
-            selectActiveSessionProvider();
-            sessionProvider.startSession(state, ownerData, aiOutputBuffer);
-        } else if (state.isTranscriptBuffering()) {
-            backgroundTranscript.start(state);
+
+        AiSessionProvider activeProvider = selectActiveSessionProvider();
+        if (state.isAiActive() || activeProvider == dualOrchestrator) {
+            activeProvider.startSession(state, ownerData, aiOutputBuffer);
         }
-        CustomLogger.i(TAG, "Audio bridge started | ai=" + state.isAiActive()
-                + " | provider=" + sessionProvider.getClass().getSimpleName()
-                + " | record=" + state.isRecordingActive()
-                + " | listenIn=" + state.isAnonymousListenIn());
+        if (state.isAiActive() && state.isAnonymousListenIn()) {
+            monitorPlayer.start(48000);
+        }
+        CustomLogger.i(TAG, "Audio bridge started | serial=" + memory.getSerialId()
+                + " | ai=" + state.isAiActive()
+                + " | provider=" + activeProvider.getClass().getSimpleName());
     }
 
     public synchronized void onHandoverToAi(AiCallSessionState state, String ownerData) {
-        backgroundTranscript.stop();
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
+        memory.recordHandoverToAi(null);
+
         if (state != null) {
-            selectActiveSessionProvider();
-            sessionProvider.startSession(state, ownerData, aiOutputBuffer);
+            AiSessionProvider activeProvider = selectActiveSessionProvider();
+            activeProvider.startSession(state, ownerData, aiOutputBuffer);
+            if (state.isAnonymousListenIn()) {
+                monitorPlayer.start(48000);
+            }
         }
     }
 
-    public synchronized void onTakeOverByOwner() {
-        sessionProvider.stopSession();
+    public synchronized void onTakeOverByOwner(AiCallSessionState state) {
+        memory.recordTakeOverFromAi(null);
+        monitorPlayer.stop();
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
-        AiCallSessionState state = AiCallController.getInstance().getState();
-        if (state.isTranscriptBuffering()) {
-            backgroundTranscript.start(state);
+
+        if (sessionProvider == dualOrchestrator) {
+            dualOrchestrator.stopSpeakerOnly();
+        } else {
+            sessionProvider.stopSession();
+        }
+    }
+
+    public synchronized void updateAnonymousListenState(AiCallSessionState state) {
+        if (state != null && state.isAiActive() && state.isAnonymousListenIn()) {
+            monitorPlayer.start(48000);
+        } else {
+            monitorPlayer.stop();
         }
     }
 
     public synchronized File onCallEnded() {
-        backgroundTranscript.stop();
-        sessionProvider.stopSession();
+        monitorPlayer.stop();
+        dualOrchestrator.stopSession();
+        singleProvider.stopSession();
+        localTestProvider.stopSession();
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
         return recorder.stopAndFinalize();
@@ -125,26 +151,32 @@ public final class AiAudioBridge {
         byteBuffer.position(0);
 
         if (state.isRecordingActive()) {
-            recorder.onRemotePcm(playoutScratch, len, sampleRate);
+            byte[] monoRemote = PcmResampler.toMono(playoutScratch, len, channels);
+            recorder.onRemotePcm(monoRemote, monoRemote.length, sampleRate);
         }
 
         if (state.isAiActive()) {
             sessionProvider.onCallerPcm(playoutScratch, len, sampleRate, channels);
-            if (!state.isAnonymousListenIn()) {
-                // Mute local phone speaker while AI handles the call
-                Arrays.fill(playoutScratch, 0, len, (byte) 0);
-                byteBuffer.position(0);
-                byteBuffer.put(playoutScratch, 0, len);
-                byteBuffer.position(0);
-            } else if (lastAiFrameLen >= len) {
-                // Mix AI reply at 50% volume so owner hears both sides anonymously
-                mixHalfInPlace(playoutScratch, lastAiFrame, len);
-                byteBuffer.position(0);
-                byteBuffer.put(playoutScratch, 0, len);
-                byteBuffer.position(0);
+
+            // ALWAYS zero WebRtcAudioTrack while AI is active so Android/WebRTC AEC
+            // never cancels AI's voice when Anonymous Listen-In is enabled!
+            if (state.isAnonymousListenIn()) {
+                monitorPlayer.start(sampleRate > 0 ? sampleRate : 48000);
+                byte[] monoCaller = PcmResampler.toMono(playoutScratch, len, channels);
+                monitorPlayer.enqueueMixedFrame(monoCaller, lastAiFrame, lastAiFrameLen, monoCaller.length);
+            } else {
+                monitorPlayer.stop();
             }
-        } else if (state.isTranscriptBuffering()) {
-            backgroundTranscript.onAudioPcm(playoutScratch, len, sampleRate, channels);
+
+            Arrays.fill(playoutScratch, 0, len, (byte) 0);
+            byteBuffer.position(0);
+            byteBuffer.put(playoutScratch, 0, len);
+            byteBuffer.position(0);
+        } else {
+            monitorPlayer.stop();
+            if (sessionProvider == dualOrchestrator && state.isTranscriptBuffering()) {
+                dualOrchestrator.onCallerPcm(playoutScratch, len, sampleRate, channels);
+            }
         }
     }
 
@@ -157,49 +189,40 @@ public final class AiAudioBridge {
             return;
         }
         if (sampleRate > 0) {
-            geminiProvider.setTargetOutputSampleRate(sampleRate);
+            dualOrchestrator.setTargetOutputFormat(sampleRate, Math.max(1, channels));
+            singleProvider.setTargetOutputSampleRate(sampleRate);
         }
         int len = Math.min(sizeInBytes, SCRATCH_MAX_BYTES);
 
         if (state.isAiActive()) {
             aiOutputBuffer.read(recordScratch, 0, len);
-            System.arraycopy(recordScratch, 0, lastAiFrame, 0, len);
-            lastAiFrameLen = len;
+
+            byte[] monoAi = PcmResampler.toMono(recordScratch, len, channels);
+            int monoLen = Math.min(monoAi.length, SCRATCH_MAX_BYTES);
+            System.arraycopy(monoAi, 0, lastAiFrame, 0, monoLen);
+            lastAiFrameLen = monoLen;
 
             byteBuffer.position(0);
             byteBuffer.put(recordScratch, 0, len);
             byteBuffer.position(0);
 
             if (state.isRecordingActive()) {
-                recorder.onLocalPcm(recordScratch, len, sampleRate);
+                recorder.onLocalPcm(monoAi, monoLen, sampleRate);
             }
         } else {
-            boolean needCopy = state.isRecordingActive() || state.isTranscriptBuffering();
+            boolean needCopy = state.isRecordingActive() || (sessionProvider == dualOrchestrator && state.isTranscriptBuffering());
             if (needCopy) {
                 byteBuffer.position(0);
                 byteBuffer.get(recordScratch, 0, len);
                 byteBuffer.position(0);
                 if (state.isRecordingActive()) {
-                    recorder.onLocalPcm(recordScratch, len, sampleRate);
+                    byte[] monoLocal = PcmResampler.toMono(recordScratch, len, channels);
+                    recorder.onLocalPcm(monoLocal, monoLocal.length, sampleRate);
                 }
-                if (state.isTranscriptBuffering()) {
-                    backgroundTranscript.onAudioPcm(recordScratch, len, sampleRate, channels);
+                if (sessionProvider == dualOrchestrator && state.isTranscriptBuffering()) {
+                    dualOrchestrator.onOwnerLocalAudioPcm(recordScratch, len, sampleRate, channels);
                 }
             }
-        }
-    }
-
-    private static void mixHalfInPlace(byte[] dst, byte[] ai, int byteLen) {
-        int samples = byteLen / 2;
-        for (int i = 0; i < samples; i++) {
-            int idx = i * 2;
-            short d = (short) ((dst[idx] & 0xFF) | (dst[idx + 1] << 8));
-            short a = (short) ((ai[idx] & 0xFF) | (ai[idx + 1] << 8));
-            int mixed = d + (a / 2);
-            if (mixed > 32767) mixed = 32767;
-            else if (mixed < -32768) mixed = -32768;
-            dst[idx] = (byte) (mixed & 0xFF);
-            dst[idx + 1] = (byte) ((mixed >> 8) & 0xFF);
         }
     }
 }

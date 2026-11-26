@@ -312,6 +312,10 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
                     }
                 }
             }
+
+            if (sc.optBoolean("turnComplete", false) && aiOutputBuffer != null) {
+                aiOutputBuffer.flushForPlayback();
+            }
         } catch (Throwable t) {
             CustomLogger.e(TAG, "Error parsing Gemini server JSON", t);
         }

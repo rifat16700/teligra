@@ -3,7 +3,7 @@
 **Purpose**: Track every hook location for disaster recovery after upstream rebase.
 
 **Last Updated**: 2026-11-26
-**Total Hooks**: 14
+**Total Hooks**: 15
 
 ---
 
@@ -25,6 +25,7 @@
 | 12 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | showNotification | `org.telegram.custom.aicall.AiCallHooks.onBuildCallNotification(this, builder);` | feature/ai-auto-answer | ✅ Active |
 | 13 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | refreshCustomNotification | `public void refreshCustomNotification() { showNotification(); }` | feature/ai-auto-answer | ✅ Active |
 | 14 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPActionsReceiver.java | VoIPActionsReceiver | onReceive | `if (org.telegram.custom.aicall.AiCallHooks.onNotificationAction(context, intent)) return;` | feature/ai-auto-answer | ✅ Active |
+| 15 | Telegram/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java | ChatActivity | addMessagesInternal | `if (org.telegram.custom.aicall.AiCallHooks.shouldHideSavedCallRecord(dialog_id, getUserConfig().getClientUserId(), obj)) continue;` | feature/ai-auto-answer | ✅ Active |
 
 ---
 

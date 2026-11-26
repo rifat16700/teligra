@@ -6,11 +6,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 
+import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
 import org.telegram.messenger.voip.VoIPActionsReceiver;
 import org.telegram.messenger.voip.VoIPService;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.UItem;
+import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.SettingsActivity;
 
 import java.nio.ByteBuffer;
@@ -101,11 +103,23 @@ public final class AiCallHooks {
                     service, 9104, new Intent(service, VoIPActionsReceiver.class).setAction(AiCallActionBus.ACTION_TOGGLE_RECORDING), flags);
             builder.addAction(R.drawable.call, state.isRecordingActive() ? "Rec: ON" : "Rec: OFF", recPi);
         }
+
+        PendingIntent chatPi = PendingIntent.getBroadcast(
+                service, 9105, new Intent(service, VoIPActionsReceiver.class).setAction(AiCallActionBus.ACTION_OPEN_CHAT_UI), flags);
+        builder.addAction(R.drawable.call, "Open AI Chat", chatPi);
     }
 
     public static boolean onNotificationAction(Context context, Intent intent) {
         if (intent == null || intent.getAction() == null) return false;
         String action = intent.getAction();
+        if (AiCallActionBus.ACTION_OPEN_CHAT_UI.equals(action)) {
+            org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
+                if (LaunchActivity.instance != null) {
+                    LaunchActivity.instance.presentFragment(new AiCallChatFragment());
+                }
+            });
+            return true;
+        }
         if (AiCallActionBus.ACTION_TAKE_OVER.equals(action)
                 || AiCallActionBus.ACTION_HANDOVER_TO_AI.equals(action)
                 || AiCallActionBus.ACTION_TOGGLE_LISTEN_IN.equals(action)
@@ -114,6 +128,25 @@ public final class AiCallHooks {
             return true;
         }
         return false;
+    }
+
+    public static boolean shouldHideSavedCallRecord(long dialogId, long selfUserId, MessageObject obj) {
+        if (selfUserId == 0L || dialogId != selfUserId || obj == null) {
+            return false;
+        }
+        if (startsWithHiddenTag(obj.messageText) || startsWithHiddenTag(obj.caption)) {
+            return true;
+        }
+        if (obj.messageOwner != null && startsWithHiddenTag(obj.messageOwner.message)) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean startsWithHiddenTag(CharSequence text) {
+        if (text == null) return false;
+        String s = text.toString().trim();
+        return s.startsWith(CallContextMemory.HIDDEN_TAG);
     }
 
     public static boolean shouldForceJavaAudio() {

@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat;
 import org.telegram.custom.utils.CustomLogger;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.voip.VoIPPreNotificationService;
 import org.telegram.messenger.voip.VoIPService;
 import org.telegram.tgnet.TLRPC;
@@ -118,12 +119,16 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         cancelPendingAutoAnswer();
         AiCallConfig config = AiCallConfig.getInstance();
 
+        String peerName = "Caller";
         if (service != null) {
             long callId = service.getCallID();
             if (callId != 0L) state.setCallId(callId);
             state.setAccount(service.getAccount());
             TLRPC.User user = service.getUser();
-            if (user != null) state.setPeerUserId(user.id);
+            if (user != null) {
+                state.setPeerUserId(user.id);
+                peerName = ContactsController.formatName(user.first_name, user.last_name);
+            }
         }
         if (state.getStartedAtMs() == 0L) {
             state.setStartedAtMs(System.currentTimeMillis());
@@ -143,7 +148,8 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         }
 
         WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(shouldForceJavaAudio());
-        AiAudioBridge.getInstance().onCallStarted(state, config.getOwnerData());
+        AiAudioBridge.getInstance().onCallStarted(state, config.getOwnerData(), peerName);
+        refreshVoipNotification();
 
         CustomLogger.i(TAG, "Call accepted | mode=" + state.getMode()
                 + " | record=" + state.isRecordingActive()
@@ -162,6 +168,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         cancelPendingAutoAnswer();
         AiCallConfig config = AiCallConfig.getInstance();
         long userId = 0L;
+        String peerName = "Caller";
         if (service != null) {
             long callId = service.getCallID();
             if (callId != 0L) state.setCallId(callId);
@@ -170,6 +177,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
             if (user != null) {
                 userId = user.id;
                 state.setPeerUserId(userId);
+                peerName = ContactsController.formatName(user.first_name, user.last_name);
             }
         }
         state.setDirection(AiCallSessionState.CallDirection.OUTGOING);
@@ -194,25 +202,40 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         }
 
         WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(shouldForceJavaAudio());
-        AiAudioBridge.getInstance().onCallStarted(state, promptData);
+        AiAudioBridge.getInstance().onCallStarted(state, promptData, peerName);
         refreshVoipNotification();
     }
 
     public synchronized void onVoipServiceDestroyed(VoIPService service) {
         cancelPendingAutoAnswer();
-        File recordedFile = AiAudioBridge.getInstance().onCallEnded();
-        long durationSec = AiAudioBridge.getInstance().getLastRecordedDurationSeconds();
-        if (state.isRecordingActive() && recordedFile != null && recordedFile.exists()) {
-            Bundle extras = new Bundle();
-            extras.putLong(AiCallActionBus.EXTRA_CALL_ID, state.getCallId());
-            extras.putInt(AiCallActionBus.EXTRA_ACCOUNT, state.getAccount());
-            extras.putLong(AiCallActionBus.EXTRA_USER_ID, state.getPeerUserId());
-            extras.putString(SavedMessagesUploader.EXTRA_FILE_PATH, recordedFile.getAbsolutePath());
-            extras.putLong(SavedMessagesUploader.EXTRA_DURATION_SEC, durationSec);
-            extras.putString(SavedMessagesUploader.EXTRA_MODE, state.getMode().name());
-            extras.putString(SavedMessagesUploader.EXTRA_TRANSCRIPT, state.getFormattedTranscript());
-            CustomLogger.i(TAG, "Call ended with recording; dispatching Saved Messages export action.");
-            AiCallActionBus.dispatch(AiCallActionBus.ACTION_SEND_RECORDING_TO_SAVED_MESSAGES, extras);
+        AiAudioBridge bridge = AiAudioBridge.getInstance();
+        CallContextMemory memory = bridge.getMemory();
+        File recordedFile = bridge.onCallEnded();
+        long durationSec = bridge.getLastRecordedDurationSeconds();
+        if (durationSec <= 0L && state.getStartedAtMs() > 0L) {
+            durationSec = Math.max(1L, (System.currentTimeMillis() - state.getStartedAtMs()) / 1000L);
+        }
+
+        if (state.getMode() != AiCallSessionState.Mode.IDLE && state.getStartedAtMs() > 0L) {
+            AiCallHistoryStore.CallRecord record = new AiCallHistoryStore.CallRecord();
+            record.serialId = memory.getSerialId();
+            record.peerUserId = state.getPeerUserId();
+            record.peerName = memory.getPeerName();
+            record.direction = state.getDirection().name();
+            record.startedAtMs = state.getStartedAtMs();
+            record.durationSec = durationSec;
+            record.handoverCount = memory.getHandoverCount();
+            record.audioFilePath = (recordedFile != null && recordedFile.exists()) ? recordedFile.getAbsolutePath() : "";
+            record.messages = memory.getEntriesSnapshot();
+
+            PostCallSummaryGenerator.finalizeAndDispatch(
+                    record,
+                    memory.getAiPhaseSummaries(),
+                    memory.getOwnerPhaseSummaries(),
+                    state.getAccount(),
+                    state.getCallId(),
+                    state.isRecordingActive()
+            );
         }
         state.reset();
         WebRtcAudioManager.setBlacklistDeviceForOpenSLESUsage(shouldForceJavaAudio());
@@ -223,7 +246,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         state.setMode(AiCallSessionState.Mode.OWNER_HANDLING);
         state.setAiActive(false);
         state.setAnonymousListenIn(false);
-        AiAudioBridge.getInstance().onTakeOverByOwner();
+        AiAudioBridge.getInstance().onTakeOverByOwner(state);
         refreshVoipNotification();
         CustomLogger.i(TAG, "Owner took over callId=" + state.getCallId());
     }
@@ -241,6 +264,7 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
 
     public synchronized void setAnonymousListenIn(boolean enabled) {
         state.setAnonymousListenIn(enabled);
+        AiAudioBridge.getInstance().updateAnonymousListenState(state);
         refreshVoipNotification();
         CustomLogger.i(TAG, "Anonymous listen-in set to " + enabled);
     }

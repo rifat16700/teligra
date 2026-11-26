@@ -39,7 +39,8 @@ import java.util.ArrayList;
 
 /**
  * Native Telegram settings fragment for configuring AI Auto-Answer Voice Calls,
- * ring delay (0s - 60s), Owner Data / knowledge context, and BYOK Gemini Live WebSocket settings.
+ * ring delay (0s - 60s), Owner Data / knowledge context, and BYOK Gemini Live
+ * WebSocket settings.
  */
 public class AiCallSettingsActivity extends BaseFragment {
 
@@ -58,6 +59,7 @@ public class AiCallSettingsActivity extends BaseFragment {
     private TextCheckCell autoRecordCheckCell;
     private TextCheckCell anonymousListenCheckCell;
     private TextCheckCell backgroundTranscriptCheckCell;
+    private TextCheckCell dualModelCheckCell;
 
     @Override
     public View createView(Context context) {
@@ -82,15 +84,37 @@ public class AiCallSettingsActivity extends BaseFragment {
 
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        scrollView.addView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scrollView.addView(root,
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // --- Quick Access: Call History & Live Chat UI ---
+        LinearLayout quickSection = createWhiteCard(context);
+        root.addView(quickSection,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 10));
+
+        TextSettingsCell historyCell = new TextSettingsCell(context);
+        int count = AiCallHistoryStore.loadAllRecords().size();
+        historyCell.setTextAndValue("Call History & AI Summaries", count > 0 ? count + " calls" : "Empty", true);
+        historyCell.setOnClickListener(v -> presentFragment(new AiCallHistoryActivity()));
+        quickSection.addView(historyCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        TextSettingsCell liveChatCell = new TextSettingsCell(context);
+        AiCallSessionState.Mode curMode = AiCallController.getInstance().getState().getMode();
+        liveChatCell.setTextAndValue("Live AI Call Chat UI", curMode == AiCallSessionState.Mode.IDLE ? "Idle" : "Active", false);
+        liveChatCell.setOnClickListener(v -> presentFragment(new AiCallChatFragment()));
+        quickSection.addView(liveChatCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         // --- Section 1: Auto-Answer & Ring Delay ---
         LinearLayout autoAnswerSection = createWhiteCard(context);
-        root.addView(autoAnswerSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        root.addView(autoAnswerSection,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         HeaderCell generalHeader = new HeaderCell(context);
         generalHeader.setText("Auto-Answer");
-        autoAnswerSection.addView(generalHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        autoAnswerSection.addView(generalHeader,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         autoAnswerCheckCell = new TextCheckCell(context);
         autoAnswerCheckCell.setTextAndCheck("Enable AI Auto-Answer", config.isAutoAnswerEnabled(), true);
@@ -102,16 +126,20 @@ public class AiCallSettingsActivity extends BaseFragment {
             config.setAutoAnswerEnabled(next);
             autoAnswerCheckCell.setChecked(next);
         });
-        autoAnswerSection.addView(autoAnswerCheckCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        autoAnswerSection.addView(autoAnswerCheckCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         LinearLayout delayRow = new LinearLayout(context);
         delayRow.setOrientation(LinearLayout.VERTICAL);
-        delayRow.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(12), AndroidUtilities.dp(21), AndroidUtilities.dp(14));
-        autoAnswerSection.addView(delayRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        delayRow.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(12), AndroidUtilities.dp(21),
+                AndroidUtilities.dp(14));
+        autoAnswerSection.addView(delayRow,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         LinearLayout delayLabelRow = new LinearLayout(context);
         delayLabelRow.setOrientation(LinearLayout.HORIZONTAL);
-        delayRow.addView(delayLabelRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        delayRow.addView(delayLabelRow,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         TextView delayTitle = new TextView(context);
         delayTitle.setText("Ring Delay Before Auto-Answer");
@@ -122,7 +150,8 @@ public class AiCallSettingsActivity extends BaseFragment {
         delayValueView = new TextView(context);
         delayValueView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
         delayValueView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteValueText));
-        delayLabelRow.addView(delayValueView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        delayLabelRow.addView(delayValueView,
+                LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
 
         int currentDelay = config.getRingDelaySeconds();
         updateDelayLabel(currentDelay);
@@ -144,7 +173,8 @@ public class AiCallSettingsActivity extends BaseFragment {
         delayRow.addView(delaySeekBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 38, 0, 8, 0, 0));
 
         TextInfoPrivacyCell autoAnswerInfo = new TextInfoPrivacyCell(context);
-        autoAnswerInfo.setText("When enabled, incoming calls ring for the selected delay (0s instant up to 60s) and are then answered automatically.");
+        autoAnswerInfo.setText(
+                "When enabled, incoming calls ring for the selected delay (0s instant up to 60s) and are then answered automatically.");
         root.addView(autoAnswerInfo, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         // --- Section 2: Owner Data & AI Context ---
@@ -153,11 +183,14 @@ public class AiCallSettingsActivity extends BaseFragment {
 
         HeaderCell ownerHeader = new HeaderCell(context);
         ownerHeader.setText("Owner Data (AI Knowledge & Instructions)");
-        ownerSection.addView(ownerHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        ownerSection.addView(ownerHeader,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         FrameLayout inputContainer = new FrameLayout(context);
-        inputContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21), AndroidUtilities.dp(8));
-        ownerSection.addView(inputContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        inputContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21),
+                AndroidUtilities.dp(8));
+        ownerSection.addView(inputContainer,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         ownerDataInput = new EditTextBoldCursor(context);
         ownerDataInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
@@ -169,15 +202,17 @@ public class AiCallSettingsActivity extends BaseFragment {
         ownerDataInput.setLineColors(
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputField),
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputFieldActivated),
-                Theme.getColor(Theme.key_text_RedRegular)
-        );
-        ownerDataInput.setHint("Write your status, availability, rules, or info the AI should use to answer callers...");
-        ownerDataInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+                Theme.getColor(Theme.key_text_RedRegular));
+        ownerDataInput
+                .setHint("Write your status, availability, rules, or info the AI should use to answer callers...");
+        ownerDataInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         ownerDataInput.setMinLines(4);
         ownerDataInput.setMaxLines(10);
         ownerDataInput.setGravity(Gravity.TOP | Gravity.START);
         ownerDataInput.setText(config.getOwnerData());
-        inputContainer.addView(ownerDataInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        inputContainer.addView(ownerDataInput,
+                LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         TextView saveButton = new TextView(context);
         saveButton.setText("Save Owner Data");
@@ -187,17 +222,19 @@ public class AiCallSettingsActivity extends BaseFragment {
         saveButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
                 AndroidUtilities.dp(8),
                 Theme.getColor(Theme.key_featuredStickers_addButton),
-                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)
-        ));
-        saveButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16), AndroidUtilities.dp(10));
+                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)));
+        saveButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16),
+                AndroidUtilities.dp(10));
         saveButton.setOnClickListener(v -> {
             saveOwnerDataQuietly();
-            BulletinFactory.of(this).createSimpleBulletin(org.telegram.messenger.R.raw.contact_check, "Owner data saved").show();
+            BulletinFactory.of(this)
+                    .createSimpleBulletin(org.telegram.messenger.R.raw.contact_check, "Owner data saved").show();
         });
         ownerSection.addView(saveButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 21, 8, 21, 16));
 
         TextInfoPrivacyCell ownerInfo = new TextInfoPrivacyCell(context);
-        ownerInfo.setText("This owner data is sent to the AI session when answering or taking over a call so it responds strictly from your saved context.");
+        ownerInfo.setText(
+                "This owner data is sent to the AI session when answering or taking over a call so it responds strictly from your saved context.");
         root.addView(ownerInfo, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         // --- Section 3: Gemini Live AI Connection (BYOK Local WebSocket) ---
@@ -209,8 +246,10 @@ public class AiCallSettingsActivity extends BaseFragment {
         aiSection.addView(aiHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         FrameLayout apiKeyContainer = new FrameLayout(context);
-        apiKeyContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21), AndroidUtilities.dp(6));
-        aiSection.addView(apiKeyContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        apiKeyContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21),
+                AndroidUtilities.dp(6));
+        aiSection.addView(apiKeyContainer,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         apiKeyInput = new EditTextBoldCursor(context);
         apiKeyInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
@@ -222,22 +261,25 @@ public class AiCallSettingsActivity extends BaseFragment {
         apiKeyInput.setLineColors(
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputField),
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputFieldActivated),
-                Theme.getColor(Theme.key_text_RedRegular)
-        );
+                Theme.getColor(Theme.key_text_RedRegular));
         apiKeyInput.setHint("Your Google AI Studio API Key (AIzaSy...)");
         apiKeyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         apiKeyInput.setSingleLine(true);
         apiKeyInput.setText(config.getApiKey());
-        apiKeyContainer.addView(apiKeyInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        apiKeyContainer.addView(apiKeyInput,
+                LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         modelPresetCell = new TextSettingsCell(context);
         modelPresetCell.setTextAndValue("Live Model Preset", config.getPresetLabelForModel(config.getModelId()), true);
         modelPresetCell.setOnClickListener(v -> showModelPresetDialog(context, config));
-        aiSection.addView(modelPresetCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        aiSection.addView(modelPresetCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         FrameLayout modelIdContainer = new FrameLayout(context);
-        modelIdContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21), AndroidUtilities.dp(6));
-        aiSection.addView(modelIdContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        modelIdContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21),
+                AndroidUtilities.dp(6));
+        aiSection.addView(modelIdContainer,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         modelIdInput = new EditTextBoldCursor(context);
         modelIdInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
@@ -248,13 +290,13 @@ public class AiCallSettingsActivity extends BaseFragment {
         modelIdInput.setLineColors(
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputField),
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputFieldActivated),
-                Theme.getColor(Theme.key_text_RedRegular)
-        );
+                Theme.getColor(Theme.key_text_RedRegular));
         modelIdInput.setHint("Exact Model ID (e.g. gemini-3.8-live)");
         modelIdInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         modelIdInput.setSingleLine(true);
         modelIdInput.setText(config.getModelId());
-        modelIdContainer.addView(modelIdInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        modelIdContainer.addView(modelIdInput,
+                LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         voiceCell = new TextSettingsCell(context);
         voiceCell.setTextAndValue("AI Voice", config.getVoiceName(), true);
@@ -262,9 +304,20 @@ public class AiCallSettingsActivity extends BaseFragment {
         aiSection.addView(voiceCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         apiVersionCell = new TextSettingsCell(context);
-        apiVersionCell.setTextAndValue("WebSocket API Version", config.getApiVersion(), false);
+        apiVersionCell.setTextAndValue("WebSocket API Version", config.getApiVersion(), true);
         apiVersionCell.setOnClickListener(v -> showApiVersionDialog(context, config));
-        aiSection.addView(apiVersionCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        aiSection.addView(apiVersionCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        dualModelCheckCell = new TextCheckCell(context);
+        dualModelCheckCell.setTextAndCheck("Dual-Model Pipeline (2.5 Listener + Voice)", config.isDualModelEnabled(), false);
+        dualModelCheckCell.setOnClickListener(v -> {
+            boolean next = !config.isDualModelEnabled();
+            config.setDualModelEnabled(next);
+            dualModelCheckCell.setChecked(next);
+        });
+        aiSection.addView(dualModelCheckCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         TextView saveAiButton = new TextView(context);
         saveAiButton.setText("Save API Key & AI Settings");
@@ -274,18 +327,21 @@ public class AiCallSettingsActivity extends BaseFragment {
         saveAiButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
                 AndroidUtilities.dp(8),
                 Theme.getColor(Theme.key_featuredStickers_addButton),
-                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)
-        ));
-        saveAiButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16), AndroidUtilities.dp(10));
+                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)));
+        saveAiButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16),
+                AndroidUtilities.dp(10));
         saveAiButton.setOnClickListener(v -> {
             saveOwnerDataQuietly();
-            modelPresetCell.setTextAndValue("Live Model Preset", config.getPresetLabelForModel(config.getModelId()), true);
-            BulletinFactory.of(this).createSimpleBulletin(org.telegram.messenger.R.raw.contact_check, "AI WebSocket settings saved locally").show();
+            modelPresetCell.setTextAndValue("Live Model Preset", config.getPresetLabelForModel(config.getModelId()),
+                    true);
+            BulletinFactory.of(this).createSimpleBulletin(org.telegram.messenger.R.raw.contact_check,
+                    "AI WebSocket settings saved locally").show();
         });
         aiSection.addView(saveAiButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 21, 8, 21, 16));
 
         TextInfoPrivacyCell aiInfo = new TextInfoPrivacyCell(context);
-        aiInfo.setText("Uses direct Gemini Live WebSocket (wss://) with your own locally stored API key. No developer server or shared billing is used. Leave key blank to use the local test chime.");
+        aiInfo.setText(
+                "Uses direct Gemini Live WebSocket (wss://) with your own locally stored API key. No developer server or shared billing is used. Leave key blank to use the local test chime.");
         root.addView(aiInfo, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         // --- Section 4: Composable Call Controls ---
@@ -294,34 +350,41 @@ public class AiCallSettingsActivity extends BaseFragment {
 
         HeaderCell controlsHeader = new HeaderCell(context);
         controlsHeader.setText("Call Recording & Monitoring");
-        controlsSection.addView(controlsHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        controlsSection.addView(controlsHeader,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         autoRecordCheckCell = new TextCheckCell(context);
-        autoRecordCheckCell.setTextAndCheck("Auto-Record to Saved Messages", config.isAutoRecordToSavedMessages(), true);
+        autoRecordCheckCell.setTextAndCheck("Auto-Record to Saved Messages", config.isAutoRecordToSavedMessages(),
+                true);
         autoRecordCheckCell.setOnClickListener(v -> {
             boolean next = !config.isAutoRecordToSavedMessages();
             config.setAutoRecordToSavedMessages(next);
             autoRecordCheckCell.setChecked(next);
         });
-        controlsSection.addView(autoRecordCheckCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        controlsSection.addView(autoRecordCheckCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         anonymousListenCheckCell = new TextCheckCell(context);
-        anonymousListenCheckCell.setTextAndCheck("Anonymous Live Listen-In by Default", config.isAnonymousListenDefault(), true);
+        anonymousListenCheckCell.setTextAndCheck("Anonymous Live Listen-In by Default",
+                config.isAnonymousListenDefault(), true);
         anonymousListenCheckCell.setOnClickListener(v -> {
             boolean next = !config.isAnonymousListenDefault();
             config.setAnonymousListenDefault(next);
             anonymousListenCheckCell.setChecked(next);
         });
-        controlsSection.addView(anonymousListenCheckCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        controlsSection.addView(anonymousListenCheckCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         backgroundTranscriptCheckCell = new TextCheckCell(context);
-        backgroundTranscriptCheckCell.setTextAndCheck("Background Call Transcript (Handover)", config.isBackgroundTranscriptEnabled(), false);
+        backgroundTranscriptCheckCell.setTextAndCheck("Background Call Transcript (Handover)",
+                config.isBackgroundTranscriptEnabled(), false);
         backgroundTranscriptCheckCell.setOnClickListener(v -> {
             boolean next = !config.isBackgroundTranscriptEnabled();
             config.setBackgroundTranscriptEnabled(next);
             backgroundTranscriptCheckCell.setChecked(next);
         });
-        controlsSection.addView(backgroundTranscriptCheckCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        controlsSection.addView(backgroundTranscriptCheckCell,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         // --- Section 5: Place AI Outgoing Call ---
         LinearLayout outgoingSection = createWhiteCard(context);
@@ -329,11 +392,14 @@ public class AiCallSettingsActivity extends BaseFragment {
 
         HeaderCell outgoingHeader = new HeaderCell(context);
         outgoingHeader.setText("Place AI Outgoing Call");
-        outgoingSection.addView(outgoingHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        outgoingSection.addView(outgoingHeader,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         FrameLayout goalContainer = new FrameLayout(context);
-        goalContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21), AndroidUtilities.dp(8));
-        outgoingSection.addView(goalContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        goalContainer.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(8), AndroidUtilities.dp(21),
+                AndroidUtilities.dp(8));
+        outgoingSection.addView(goalContainer,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         outgoingGoalInput = new EditTextBoldCursor(context);
         outgoingGoalInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
@@ -344,13 +410,14 @@ public class AiCallSettingsActivity extends BaseFragment {
         outgoingGoalInput.setLineColors(
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputField),
                 Theme.getColor(Theme.key_windowBackgroundWhiteInputFieldActivated),
-                Theme.getColor(Theme.key_text_RedRegular)
-        );
+                Theme.getColor(Theme.key_text_RedRegular));
         outgoingGoalInput.setHint("Optional call goal (e.g. Tell them I will call back in 15 mins)");
-        outgoingGoalInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        outgoingGoalInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         outgoingGoalInput.setMinLines(2);
         outgoingGoalInput.setMaxLines(5);
-        goalContainer.addView(outgoingGoalInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        goalContainer.addView(outgoingGoalInput,
+                LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         TextView startAiCallButton = new TextView(context);
         startAiCallButton.setText("Choose Contact & Start AI Call");
@@ -360,14 +427,16 @@ public class AiCallSettingsActivity extends BaseFragment {
         startAiCallButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
                 AndroidUtilities.dp(8),
                 Theme.getColor(Theme.key_featuredStickers_addButton),
-                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)
-        ));
-        startAiCallButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16), AndroidUtilities.dp(10));
+                Theme.getColor(Theme.key_featuredStickers_addButtonPressed)));
+        startAiCallButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16),
+                AndroidUtilities.dp(10));
         startAiCallButton.setOnClickListener(v -> showOutgoingContactPicker(context));
-        outgoingSection.addView(startAiCallButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 21, 8, 21, 16));
+        outgoingSection.addView(startAiCallButton,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 21, 8, 21, 16));
 
         TextInfoPrivacyCell statusFooter = new TextInfoPrivacyCell(context);
-        statusFooter.setText("All 4 Phases active: Auto-Answer (0-60s), Gemini Live WebSocket (BYOK), Bi-Directional Handover, Anonymous Listen-In, Saved Messages Recorder, and AI Outgoing Calls.");
+        statusFooter.setText(
+                "All 4 Phases active: Auto-Answer (0-60s), Gemini Live WebSocket (BYOK), Bi-Directional Handover, Anonymous Listen-In, Saved Messages Recorder, and AI Outgoing Calls.");
         root.addView(statusFooter, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         fragmentView = scrollView;
@@ -457,7 +526,8 @@ public class AiCallSettingsActivity extends BaseFragment {
             if (which >= 0 && which < users.size() && getParentActivity() != null) {
                 TLRPC.User target = users.get(which);
                 AiCallController.getInstance().prepareAiOutgoingCall(target.id, goal);
-                VoIPHelper.startCall(target, false, false, getParentActivity(), null, AccountInstance.getInstance(currentAccount));
+                VoIPHelper.startCall(target, false, false, getParentActivity(), null,
+                        AccountInstance.getInstance(currentAccount));
             }
         });
         showDialog(builder.create());
@@ -477,7 +547,8 @@ public class AiCallSettingsActivity extends BaseFragment {
     }
 
     private void updateDelayLabel(int seconds) {
-        if (delayValueView == null) return;
+        if (delayValueView == null)
+            return;
         if (seconds == 0) {
             delayValueView.setText("0s (Instant)");
         } else if (seconds == 60) {
@@ -495,12 +566,14 @@ public class AiCallSettingsActivity extends BaseFragment {
     }
 
     private boolean hasAudioPermission(Context context) {
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        return ContextCompat.checkSelfPermission(context,
+                Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     }
 
     private void requestAudioPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && getParentActivity() != null) {
-            getParentActivity().requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_CODE_RECORD_AUDIO);
+            getParentActivity().requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO },
+                    REQUEST_CODE_RECORD_AUDIO);
         }
     }
 }

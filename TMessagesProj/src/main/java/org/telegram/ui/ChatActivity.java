@@ -21925,6 +21925,9 @@ public class ChatActivity extends BaseFragment implements
             if (obj.messageOwner.action instanceof TLRPC.TL_messageActionChannelMigrateFrom) {
                 continue;
             }
+            // CUSTOM_HOOK_START
+            if (org.telegram.custom.aicall.AiCallHooks.shouldHideSavedCallRecord(dialog_id, getUserConfig().getClientUserId(), obj)) continue;
+            // CUSTOM_HOOK_END
 
             final boolean canAnimateMessage = needAnimateToMessage != null && needAnimateToMessage.getId() == messageId && messageId < 0 && chatMode != MODE_SCHEDULED
                 && (chatMode != MODE_QUICK_REPLIES || messages.size() + 1 < getMessagesController().config.quickReplyMessagesLimit.get())

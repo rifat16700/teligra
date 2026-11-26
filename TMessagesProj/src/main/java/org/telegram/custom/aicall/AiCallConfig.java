@@ -25,6 +25,7 @@ public final class AiCallConfig {
     private static final String KEY_API_VERSION = "gemini_api_version";
     private static final String KEY_VOICE_NAME = "gemini_voice_name";
     private static final String KEY_THINKING_LEVEL = "gemini_thinking_level";
+    private static final String KEY_DUAL_MODEL_ENABLED = "dual_model_enabled";
 
     public static final int MIN_RING_DELAY_SECONDS = 0;
     public static final int MAX_RING_DELAY_SECONDS = 60;
@@ -166,6 +167,14 @@ public final class AiCallConfig {
     public void setThinkingLevel(String level) {
         String value = ("LOW".equals(level) || "HIGH".equals(level)) ? level : "OFF";
         prefs.edit().putString(KEY_THINKING_LEVEL, value).apply();
+    }
+
+    public boolean isDualModelEnabled() {
+        return prefs.getBoolean(KEY_DUAL_MODEL_ENABLED, true);
+    }
+
+    public void setDualModelEnabled(boolean enabled) {
+        prefs.edit().putBoolean(KEY_DUAL_MODEL_ENABLED, enabled).apply();
     }
 
     public void applyModelPreset(String modelId) {
