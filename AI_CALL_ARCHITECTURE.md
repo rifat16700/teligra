@@ -67,4 +67,8 @@ This document tracks the architecture, user requirements, and phased implementat
   - **Audio Fixes**: `AiMonitorPlayer` (standalone `AudioTrack` outside WebRTC so AEC never cancels AI voice), 140ms jitter pre-buffer in `PcmRingBuffer`, stereo-aware `PcmResampler.monoToChannels`.
   - **Dual-Model Multitasking (`DualModelOrchestrator`)**: `gemini-2.5-flash-native-audio-preview-12-2025` handles continuous speech listening, server end-of-turn detection, live transcription & phase summarization; finalized text feeds user's selected Voice model (e.g. `gemini-3.8-live`).
   - **Multi-Handover Memory & Post-Call Report**: `CallContextMemory` + `PostCallSummaryGenerator` merges all AI & Owner phases into a detailed post-call explanation and serial-tagged `#nc-call-r` Saved Messages upload.
-  - **Chat-Style Live Calling UI (`AiCallChatFragment`) & Call History Replay (`AiCallHistoryActivity`, `AiCallDetailActivity`)** + 1-line `#nc-call-r` filter in Saved Messages (`ChatActivity.java`).
+  - **Chat-Style Live Calling UI (`AiCallOverlayView`) & Saved Messages Archive Button**:
+    - `AiCallOverlayView` covers `VoIPFragment` natively with animated dark-glass bubbles, live timer, Hide/Show pill, Take Over / Return to AI, Anonymous Listen, and End Call.
+    - Direct low-latency (~1–2s) audio streaming to selected Voice model while AI is active + `gemini-2.5-flash-native-audio-preview-12-2025` background listener during Owner mode.
+    - Dedicated top-bar button inside Saved Messages (`ChatActivity`) opening `AiCallHistoryActivity` + `AiCallDetailActivity` (`#nc-call-r` filter).
+    - Fast GitHub Actions caching for C++ `.cxx` & Android NDK/CMake in `.github/workflows/build-apk.yml`.

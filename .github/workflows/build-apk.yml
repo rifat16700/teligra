@@ -32,7 +32,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Cache Android SDK NDK & CMake
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/platforms/android-36
+            ${{ env.ANDROID_HOME }}/build-tools/36.0.0
+            ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: sdk-36-ndk27-cmake322-v1
+
       - name: Install Android SDK components
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
@@ -40,6 +52,17 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;27.2.12479018" \
             "cmake;3.22.1"
+
+      - name: Cache Compiled C++ Native Objects (arm64-v8a)
+        uses: actions/cache@v4
+        with:
+          path: |
+            TMessagesProj/.cxx
+            TMessagesProj/build/intermediates/cxx
+            TMessagesProj_Modules/media/build
+          key: cxx-arm64-${{ hashFiles('TMessagesProj/jni/CMakeLists.txt', 'TMessagesProj/jni/voip/CMakeLists.txt', 'TMessagesProj/build.gradle') }}
+          restore-keys: |
+            cxx-arm64-
 
       - name: Generate local.properties
         env:
@@ -57,6 +80,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :TMessagesProj_AppStandalone:assembleAfatDebug \
             -PtargetAbi=arm64-v8a \
+            --build-cache \
             --no-daemon
 
       - name: Upload Debug APK

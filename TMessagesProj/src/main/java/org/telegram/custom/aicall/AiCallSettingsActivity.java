@@ -94,16 +94,9 @@ public class AiCallSettingsActivity extends BaseFragment {
 
         TextSettingsCell historyCell = new TextSettingsCell(context);
         int count = AiCallHistoryStore.loadAllRecords().size();
-        historyCell.setTextAndValue("Call History & AI Summaries", count > 0 ? count + " calls" : "Empty", true);
+        historyCell.setTextAndValue("Call History & AI Summaries", count > 0 ? count + " calls" : "Empty", false);
         historyCell.setOnClickListener(v -> presentFragment(new AiCallHistoryActivity()));
         quickSection.addView(historyCell,
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-
-        TextSettingsCell liveChatCell = new TextSettingsCell(context);
-        AiCallSessionState.Mode curMode = AiCallController.getInstance().getState().getMode();
-        liveChatCell.setTextAndValue("Live AI Call Chat UI", curMode == AiCallSessionState.Mode.IDLE ? "Idle" : "Active", false);
-        liveChatCell.setOnClickListener(v -> presentFragment(new AiCallChatFragment()));
-        quickSection.addView(liveChatCell,
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         // --- Section 1: Auto-Answer & Ring Delay ---

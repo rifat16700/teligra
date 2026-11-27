@@ -9,7 +9,7 @@ import java.util.Arrays;
  */
 public final class PcmRingBuffer {
     public static final int DEFAULT_CAPACITY_BYTES = 288_000; // ~3.0s at 48 kHz mono 16-bit
-    public static final int DEFAULT_PREBUFFER_BYTES = 13_440; // ~140ms at 48 kHz mono 16-bit
+    public static final int DEFAULT_PREBUFFER_BYTES = 7_680; // ~80ms at 48 kHz mono 16-bit
 
     private final byte[] buffer;
     private final int capacity;

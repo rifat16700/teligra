@@ -2,8 +2,8 @@
 
 **Purpose**: Track every hook location for disaster recovery after upstream rebase.
 
-**Last Updated**: 2026-11-26
-**Total Hooks**: 15
+**Last Updated**: 2026-11-27
+**Total Hooks**: 18
 
 ---
 
@@ -26,6 +26,9 @@
 | 13 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPService.java | VoIPService | refreshCustomNotification | `public void refreshCustomNotification() { showNotification(); }` | feature/ai-auto-answer | ✅ Active |
 | 14 | Telegram/TMessagesProj/src/main/java/org/telegram/messenger/voip/VoIPActionsReceiver.java | VoIPActionsReceiver | onReceive | `if (org.telegram.custom.aicall.AiCallHooks.onNotificationAction(context, intent)) return;` | feature/ai-auto-answer | ✅ Active |
 | 15 | Telegram/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java | ChatActivity | addMessagesInternal | `if (org.telegram.custom.aicall.AiCallHooks.shouldHideSavedCallRecord(dialog_id, getUserConfig().getClientUserId(), obj)) continue;` | feature/ai-auto-answer | ✅ Active |
+| 16 | Telegram/TMessagesProj/src/main/java/org/telegram/ui/VoIPFragment.java | VoIPFragment | show | `org.telegram.custom.aicall.AiCallHooks.onVoipFragmentAttached(activity, windowView);` | feature/ai-auto-answer | ✅ Active |
+| 17 | Telegram/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java | ChatActivity | createView | `org.telegram.custom.aicall.AiCallHooks.onChatMenuCreated(dialog_id, getUserConfig().getClientUserId(), menu);` | feature/ai-auto-answer | ✅ Active |
+| 18 | Telegram/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java | ChatActivity | onItemClick | `if (org.telegram.custom.aicall.AiCallHooks.onChatMenuItemClick(ChatActivity.this, id)) return;` | feature/ai-auto-answer | ✅ Active |
 
 ---
 

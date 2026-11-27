@@ -5,11 +5,14 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.view.ViewGroup;
 
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
 import org.telegram.messenger.voip.VoIPActionsReceiver;
 import org.telegram.messenger.voip.VoIPService;
+import org.telegram.ui.ActionBar.ActionBarMenu;
+import org.telegram.ui.ActionBar.ActionBarMenuItem;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.UItem;
 import org.telegram.ui.LaunchActivity;
@@ -23,6 +26,7 @@ import java.util.ArrayList;
  */
 public final class AiCallHooks {
     public static final int SETTINGS_ITEM_AI_CALL_ID = 9001;
+    public static final int SAVED_MESSAGES_ARCHIVE_ITEM_ID = 9009;
 
     private AiCallHooks() {}
 
@@ -147,6 +151,25 @@ public final class AiCallHooks {
         if (text == null) return false;
         String s = text.toString().trim();
         return s.startsWith(CallContextMemory.HIDDEN_TAG);
+    }
+
+    public static void onVoipFragmentAttached(Context context, ViewGroup windowView) {
+        if (context == null || windowView == null) return;
+        windowView.addView(new AiCallOverlayView(context));
+    }
+
+    public static void onChatMenuCreated(long dialogId, long selfUserId, ActionBarMenu menu) {
+        if (selfUserId == 0L || dialogId != selfUserId || menu == null) return;
+        ActionBarMenuItem item = menu.addItem(SAVED_MESSAGES_ARCHIVE_ITEM_ID, R.drawable.call);
+        item.setContentDescription("AI Call Summaries");
+    }
+
+    public static boolean onChatMenuItemClick(BaseFragment fragment, int itemId) {
+        if (fragment != null && itemId == SAVED_MESSAGES_ARCHIVE_ITEM_ID) {
+            fragment.presentFragment(new AiCallHistoryActivity());
+            return true;
+        }
+        return false;
     }
 
     public static boolean shouldForceJavaAudio() {

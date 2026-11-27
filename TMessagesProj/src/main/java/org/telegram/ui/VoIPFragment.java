@@ -432,6 +432,9 @@ public class VoIPFragment implements
         wm.addView(windowView, layoutParams);
         View view = fragment.createView(activity);
         windowView.addView(view);
+        // CUSTOM_HOOK_START
+        org.telegram.custom.aicall.AiCallHooks.onVoipFragmentAttached(activity, windowView);
+        // CUSTOM_HOOK_END
 
         if (transitionFromPip) {
             fragment.enterTransitionProgress = 0f;

@@ -3714,6 +3714,9 @@ public class ChatActivity extends BaseFragment implements
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
             public void onItemClick(final int id) {
+                // CUSTOM_HOOK_START
+                if (org.telegram.custom.aicall.AiCallHooks.onChatMenuItemClick(ChatActivity.this, id)) return;
+                // CUSTOM_HOOK_END
                 // the chat's menu is also opened from the sidebar: what it does is in the chat
                 if (id != chat_menu_options && id != chat_menu_topics_panel && id != -1 && topicsPanel != null && topicsPanel.isOpen()) {
                     topicsPanel.close();
@@ -4211,6 +4214,9 @@ public class ChatActivity extends BaseFragment implements
         });
 
         ActionBarMenu menu = actionBar.createMenu();
+        // CUSTOM_HOOK_START
+        org.telegram.custom.aicall.AiCallHooks.onChatMenuCreated(dialog_id, getUserConfig().getClientUserId(), menu);
+        // CUSTOM_HOOK_END
 
         if (chatMode == MODE_QUICK_REPLIES && !QuickRepliesController.isSpecial(quickReplyShortcut)) {
             menu.addItem(edit_quick_reply, R.drawable.group_edit).setContentDescription(LocaleController.getString(R.string.Edit));
