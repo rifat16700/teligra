@@ -303,7 +303,7 @@ public class AiCallSettingsActivity extends BaseFragment {
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         dualModelCheckCell = new TextCheckCell(context);
-        dualModelCheckCell.setTextAndCheck("Dual-Model Pipeline (2.5 Listener + Voice)", config.isDualModelEnabled(), false);
+        dualModelCheckCell.setTextAndCheck("Dual-Model Fast Pipeline (3.5 Transcribe -> Voice)", config.isDualModelEnabled(), false);
         dualModelCheckCell.setOnClickListener(v -> {
             boolean next = !config.isDualModelEnabled();
             config.setDualModelEnabled(next);

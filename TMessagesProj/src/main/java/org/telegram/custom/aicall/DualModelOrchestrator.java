@@ -24,20 +24,25 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Low-latency Dual-Model Orchestrator:
- * - While AI is active: streams caller 16 kHz PCM DIRECTLY into the user-selected
- *   Voice model (e.g. gemini-3.8-live) with inputAudioTranscription + outputAudioTranscription
- *   enabled, achieving ~1-2s real-time voice response and instant barge-in.
- * - While Owner is speaking (normal call or after Take Over): disconnects the Voice
- *   model and runs gemini-2.5-flash-native-audio-preview-12-2025 in the background to
- *   transcribe and summarize the Owner+Caller conversation so Return to AI has full context.
+ * Instant-Reply Dual-Model Orchestrator:
+ * 1. Transcribe WS (gemini-3.5-transcribe-live, TEXT-only, Fast VAD + Noise Gate):
+ *    Streams caller 16 kHz PCM continuously, shows live bubbles in AiCallOverlayView,
+ *    and flushes finalized caller text immediately on server turnComplete OR 450ms silence.
+ * 2. Speaker Voice WS (user-selected model e.g. gemini-3.8-live, pre-connected):
+ *    Receives finalized caller text via clientContent(turnComplete=true) just like
+ *    pressing Enter in the Live tester, returning crisp voice audio in ~0.5-1.5s!
+ *
+ * When Owner takes over, Speaker WS disconnects cleanly while Transcribe WS stays
+ * running in the background so Return to AI has full Owner+Caller summary context.
  */
 public final class DualModelOrchestrator implements AiSessionProvider {
     private static final String TAG = "DualModelOrchestrator";
-    public static final String LISTENER_MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025";
+    public static final String TRANSCRIBE_MODEL_ID = "gemini-3.5-transcribe-live";
     private static final int GEMINI_INPUT_RATE = 16000;
     private static final int GEMINI_DEFAULT_OUTPUT_RATE = 24000;
-    private static final int CHUNK_BATCH_BYTES_16K = 1280; // 40ms at 16 kHz mono 16-bit for low latency
+    private static final int CHUNK_BATCH_BYTES_16K = 1280; // 40ms at 16 kHz mono 16-bit
+    private static final int NOISE_GATE_RMS = 180;
+    private static final long DEBOUNCE_FLUSH_MS = 450L;
     private static final int MAX_INPUT_QUEUE = 100;
     private static final Pattern RATE_PATTERN = Pattern.compile("rate=(\\d+)", Pattern.CASE_INSENSITIVE);
 
@@ -54,12 +59,11 @@ public final class DualModelOrchestrator implements AiSessionProvider {
     }
 
     private final CallContextMemory memory;
-    private final LinkedBlockingQueue<PcmChunk> speakerInputQueue = new LinkedBlockingQueue<>(MAX_INPUT_QUEUE);
-    private final LinkedBlockingQueue<PcmChunk> listenerInputQueue = new LinkedBlockingQueue<>(MAX_INPUT_QUEUE);
+    private final LinkedBlockingQueue<PcmChunk> transcribeInputQueue = new LinkedBlockingQueue<>(MAX_INPUT_QUEUE);
 
     private volatile boolean active = false;
+    private volatile boolean transcribeSetupComplete = false;
     private volatile boolean speakerSetupComplete = false;
-    private volatile boolean listenerSetupComplete = false;
     private volatile int webrtcOutputSampleRate = 48000;
     private volatile int webrtcOutputChannels = 1;
 
@@ -67,10 +71,13 @@ public final class DualModelOrchestrator implements AiSessionProvider {
     private PcmRingBuffer aiOutputBuffer;
     private String currentOwnerData = "";
 
+    private WebSocket transcribeWs;
     private WebSocket speakerWs;
-    private WebSocket listenerWs;
-    private Thread speakerThread;
-    private Thread listenerThread;
+    private Thread transcribeThread;
+    private Thread speakerConnectThread;
+
+    private final StringBuilder pendingCallerTurn = new StringBuilder();
+    private final Runnable debounceFlushRunnable = this::flushPendingCallerTurn;
 
     public DualModelOrchestrator(CallContextMemory memory) {
         this.memory = memory;
@@ -79,6 +86,10 @@ public final class DualModelOrchestrator implements AiSessionProvider {
     public void setTargetOutputFormat(int sampleRate, int channels) {
         if (sampleRate > 0) this.webrtcOutputSampleRate = sampleRate;
         if (channels > 0) this.webrtcOutputChannels = channels;
+    }
+
+    public boolean isConnectedOrWarm() {
+        return active && (transcribeWs != null || speakerWs != null);
     }
 
     @Override
@@ -93,35 +104,39 @@ public final class DualModelOrchestrator implements AiSessionProvider {
             return;
         }
 
-        this.active = true;
-        if (state != null && state.isAiActive()) {
-            stopListenerOnly();
-            startOrRestartSpeaker(apiKey);
+        if (!active || transcribeWs == null || !transcribeWs.isOpen()) {
+            active = true;
+            transcribeInputQueue.clear();
+            synchronized (pendingCallerTurn) {
+                pendingCallerTurn.setLength(0);
+            }
+            AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
+            startTranscribeLoop(apiKey);
+        }
+
+        boolean wantAi = state != null && (state.isAiActive() || state.getMode() == AiCallSessionState.Mode.RINGING_TIMER);
+        if (wantAi) {
+            if (speakerWs == null || !speakerWs.isOpen()) {
+                startOrRestartSpeaker(apiKey);
+            }
         } else {
             stopSpeakerOnly();
-            startOrRestartListener(apiKey);
         }
     }
 
     public void onOwnerLocalAudioPcm(byte[] pcm16, int length, int sampleRate, int channels) {
-        if (!active || !listenerSetupComplete || sessionState == null || sessionState.isAiActive()) {
+        if (!active || !transcribeSetupComplete || sessionState == null || sessionState.isAiActive()) {
             return;
         }
-        enqueueChunk(listenerInputQueue, pcm16, length, sampleRate, channels);
+        enqueueChunk(transcribeInputQueue, pcm16, length, sampleRate, channels);
     }
 
     @Override
     public void onCallerPcm(byte[] pcm16, int length, int sampleRate, int channels) {
-        if (!active || pcm16 == null || length <= 0) {
+        if (!active || !transcribeSetupComplete || pcm16 == null || length <= 0) {
             return;
         }
-        if (sessionState != null && sessionState.isAiActive()) {
-            if (speakerSetupComplete) {
-                enqueueChunk(speakerInputQueue, pcm16, length, sampleRate, channels);
-            }
-        } else if (listenerSetupComplete) {
-            enqueueChunk(listenerInputQueue, pcm16, length, sampleRate, channels);
-        }
+        enqueueChunk(transcribeInputQueue, pcm16, length, sampleRate, channels);
     }
 
     private static void enqueueChunk(LinkedBlockingQueue<PcmChunk> q, byte[] pcm16, int length, int sampleRate, int channels) {
@@ -144,45 +159,204 @@ public final class DualModelOrchestrator implements AiSessionProvider {
 
     public synchronized void stopSpeakerOnly() {
         speakerSetupComplete = false;
-        speakerInputQueue.clear();
+        AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
+        synchronized (pendingCallerTurn) {
+            pendingCallerTurn.setLength(0);
+        }
         if (speakerWs != null) {
             try {
                 speakerWs.disconnect();
             } catch (Throwable ignored) {}
             speakerWs = null;
         }
-        if (speakerThread != null) {
-            speakerThread.interrupt();
-            speakerThread = null;
+        if (speakerConnectThread != null) {
+            speakerConnectThread.interrupt();
+            speakerConnectThread = null;
         }
         if (aiOutputBuffer != null) {
             aiOutputBuffer.clear();
         }
     }
 
-    public synchronized void stopListenerOnly() {
-        listenerSetupComplete = false;
-        listenerInputQueue.clear();
-        if (listenerWs != null) {
-            try {
-                listenerWs.disconnect();
-            } catch (Throwable ignored) {}
-            listenerWs = null;
-        }
-        if (listenerThread != null) {
-            listenerThread.interrupt();
-            listenerThread = null;
-        }
-    }
-
     @Override
     public synchronized void stopSession() {
         active = false;
+        transcribeSetupComplete = false;
+        transcribeInputQueue.clear();
         stopSpeakerOnly();
-        stopListenerOnly();
+        if (transcribeWs != null) {
+            try {
+                transcribeWs.disconnect();
+            } catch (Throwable ignored) {}
+            transcribeWs = null;
+        }
+        if (transcribeThread != null) {
+            transcribeThread.interrupt();
+            transcribeThread = null;
+        }
     }
 
-    // ---- 1. Direct Real-Time Speaker Voice WS (e.g. gemini-3.8-live) ----
+    // ---- 1. Fast Speech-to-Text Engine (gemini-3.5-transcribe-live) ----
+
+    private void startTranscribeLoop(final String apiKey) {
+        transcribeThread = new Thread(() -> {
+            try {
+                String url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key="
+                        + URLEncoder.encode(apiKey, "UTF-8");
+
+                WebSocket ws = new WebSocketFactory().setConnectionTimeout(12000).createSocket(url);
+                ws.setPingInterval(25000);
+                ws.addListener(new WebSocketAdapter() {
+                    @Override
+                    public void onConnected(WebSocket websocket, Map<String, List<String>> headers) {
+                        try {
+                            JSONObject genConfig = new JSONObject();
+                            genConfig.put("responseModalities", new JSONArray().put("TEXT"));
+
+                            JSONObject setup = new JSONObject();
+                            setup.put("model", "models/" + TRANSCRIBE_MODEL_ID);
+                            setup.put("generationConfig", genConfig);
+                            setup.put("inputAudioTranscription", new JSONObject());
+                            setup.put("realtimeInputConfig", buildFastVadConfig());
+
+                            websocket.sendText(new JSONObject().put("setup", setup).toString());
+                        } catch (Throwable t) {
+                            CustomLogger.e(TAG, "Transcribe setup error", t);
+                        }
+                    }
+
+                    @Override
+                    public void onTextMessage(WebSocket websocket, String text) {
+                        handleTranscribeJson(text);
+                    }
+
+                    @Override
+                    public void onBinaryMessage(WebSocket websocket, byte[] binary) {
+                        if (binary != null && binary.length > 0) {
+                            handleTranscribeJson(new String(binary, StandardCharsets.UTF_8));
+                        }
+                    }
+
+                    @Override
+                    public void onError(WebSocket websocket, WebSocketException cause) {
+                        CustomLogger.e(TAG, "Transcribe WS error", cause);
+                    }
+
+                    @Override
+                    public void onDisconnected(WebSocket websocket, WebSocketFrame serverCloseFrame, WebSocketFrame clientCloseFrame, boolean closedByServer) {
+                        transcribeSetupComplete = false;
+                        CustomLogger.i(TAG, "Transcribe WS closed (byServer=" + closedByServer + ")");
+                    }
+                });
+
+                this.transcribeWs = ws;
+                ws.connect();
+
+                ByteArrayOutputStream batch16k = new ByteArrayOutputStream(CHUNK_BATCH_BYTES_16K * 2);
+                while (active && ws.isOpen()) {
+                    PcmChunk chunk;
+                    try {
+                        chunk = transcribeInputQueue.poll(35, TimeUnit.MILLISECONDS);
+                    } catch (InterruptedException e) {
+                        if (!active) break;
+                        continue;
+                    }
+                    if (chunk == null) {
+                        if (batch16k.size() > 0 && transcribeSetupComplete) {
+                            byte[] out = batch16k.toByteArray();
+                            PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
+                            sendPcm16kBatch(ws, out);
+                            batch16k.reset();
+                        }
+                        continue;
+                    }
+                    byte[] mono = PcmResampler.toMono(chunk.data, chunk.data.length, chunk.channels);
+                    byte[] pcm16k = PcmResampler.resampleMono(mono, mono.length, chunk.sampleRate, GEMINI_INPUT_RATE);
+                    if (pcm16k.length > 0) {
+                        batch16k.write(pcm16k, 0, pcm16k.length);
+                        if (batch16k.size() >= CHUNK_BATCH_BYTES_16K && transcribeSetupComplete) {
+                            byte[] out = batch16k.toByteArray();
+                            PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
+                            sendPcm16kBatch(ws, out);
+                            batch16k.reset();
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                CustomLogger.e(TAG, "Transcribe loop stopped", t);
+            } finally {
+                transcribeSetupComplete = false;
+            }
+        }, "DualTranscribeWsThread");
+        transcribeThread.start();
+    }
+
+    private void handleTranscribeJson(String rawText) {
+        if (rawText == null || rawText.isEmpty()) return;
+        try {
+            JSONObject data = new JSONObject(rawText);
+            if (data.has("setupComplete")) {
+                transcribeSetupComplete = true;
+                CustomLogger.i(TAG, "Fast STT ready (" + TRANSCRIBE_MODEL_ID + ")");
+                return;
+            }
+
+            JSONObject sc = data.optJSONObject("serverContent");
+            if (sc == null) return;
+
+            boolean isAiTurn = sessionState != null && sessionState.isAiActive();
+
+            JSONObject interim = sc.optJSONObject("interimInputTranscription");
+            if (interim != null && isAiTurn) {
+                String txt = interim.optString("text", "");
+                if (!txt.trim().isEmpty()) {
+                    // Interrupt stale AI playback immediately as soon as caller speaks
+                    onBargeIn();
+                }
+            }
+
+            JSONObject inTrans = sc.optJSONObject("inputTranscription");
+            if (inTrans != null) {
+                String txt = inTrans.optString("text", "");
+                if (!txt.trim().isEmpty()) {
+                    String role = isAiTurn ? "CALLER" : "OWNER";
+                    memory.addOrAppendEntry(role, txt, true);
+                    if (sessionState != null) sessionState.appendTranscript(role, txt);
+
+                    if (isAiTurn) {
+                        onBargeIn();
+                        synchronized (pendingCallerTurn) {
+                            if (pendingCallerTurn.length() > 0) pendingCallerTurn.append(' ');
+                            pendingCallerTurn.append(txt.trim());
+                        }
+                        AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
+                        AndroidUtilities.runOnUIThread(debounceFlushRunnable, DEBOUNCE_FLUSH_MS);
+                    }
+                }
+            }
+
+            if (sc.optBoolean("turnComplete", false) && isAiTurn) {
+                AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
+                flushPendingCallerTurn();
+            }
+        } catch (Throwable t) {
+            CustomLogger.e(TAG, "Error parsing transcribe JSON", t);
+        }
+    }
+
+    private void flushPendingCallerTurn() {
+        if (!active || sessionState == null || !sessionState.isAiActive()) return;
+        final String finalizedCaller;
+        synchronized (pendingCallerTurn) {
+            finalizedCaller = pendingCallerTurn.toString().trim();
+            pendingCallerTurn.setLength(0);
+        }
+        if (!finalizedCaller.isEmpty()) {
+            new Thread(() -> forwardFinalTextToSpeaker(finalizedCaller), "ForwardTurnThread").start();
+        }
+    }
+
+    // ---- 2. Pre-Connected Speaker Voice Model (e.g. gemini-3.8-live) ----
 
     private void startOrRestartSpeaker(final String apiKey) {
         stopSpeakerOnly();
@@ -192,7 +366,7 @@ public final class DualModelOrchestrator implements AiSessionProvider {
         final String voiceName = config.getVoiceName();
         final String thinkingLevel = config.getThinkingLevel();
 
-        speakerThread = new Thread(() -> {
+        speakerConnectThread = new Thread(() -> {
             try {
                 String url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage."
                         + apiVersion
@@ -238,14 +412,35 @@ public final class DualModelOrchestrator implements AiSessionProvider {
 
                 this.speakerWs = ws;
                 ws.connect();
-                streamQueueToWs(ws, speakerInputQueue, true);
             } catch (Throwable t) {
                 CustomLogger.e(TAG, "Failed connecting Speaker WS", t);
-            } finally {
-                speakerSetupComplete = false;
             }
-        }, "DualSpeakerWsThread");
-        speakerThread.start();
+        }, "DualSpeakerWsConnectThread");
+        speakerConnectThread.start();
+    }
+
+    private void forwardFinalTextToSpeaker(String finalizedCallerText) {
+        WebSocket ws = this.speakerWs;
+        if (ws == null || !ws.isOpen() || !speakerSetupComplete) {
+            CustomLogger.w(TAG, "Speaker WS not ready; dropping caller turn: " + finalizedCallerText);
+            return;
+        }
+        try {
+            if (aiOutputBuffer != null) {
+                aiOutputBuffer.clear();
+            }
+            JSONObject part = new JSONObject().put("text", finalizedCallerText);
+            JSONObject turn = new JSONObject()
+                    .put("role", "user")
+                    .put("parts", new JSONArray().put(part));
+            JSONObject clientContent = new JSONObject()
+                    .put("turns", new JSONArray().put(turn))
+                    .put("turnComplete", true);
+            ws.sendText(new JSONObject().put("clientContent", clientContent).toString());
+            CustomLogger.d(TAG, "Forwarded finalized text -> Speaker (" + AiCallConfig.getInstance().getModelId() + ")");
+        } catch (Throwable t) {
+            CustomLogger.e(TAG, "Failed forwarding text to Speaker WS", t);
+        }
     }
 
     private void handleSpeakerJson(String rawText) {
@@ -254,7 +449,7 @@ public final class DualModelOrchestrator implements AiSessionProvider {
             JSONObject data = new JSONObject(rawText);
             if (data.has("setupComplete")) {
                 speakerSetupComplete = true;
-                CustomLogger.i(TAG, "Direct Speaker WS ready (" + AiCallConfig.getInstance().getModelId() + ")");
+                CustomLogger.i(TAG, "Speaker WS ready (" + AiCallConfig.getInstance().getModelId() + ")");
                 return;
             }
 
@@ -277,15 +472,6 @@ public final class DualModelOrchestrator implements AiSessionProvider {
 
             if (sc.optBoolean("interrupted", false)) {
                 onBargeIn();
-            }
-
-            JSONObject inTrans = sc.optJSONObject("inputTranscription");
-            if (inTrans != null) {
-                String txt = inTrans.optString("text", "");
-                if (!txt.trim().isEmpty()) {
-                    memory.addOrAppendEntry("CALLER", txt, true);
-                    if (sessionState != null) sessionState.appendTranscript("CALLER", txt);
-                }
             }
 
             JSONObject outTrans = sc.optJSONObject("outputTranscription");
@@ -334,141 +520,11 @@ public final class DualModelOrchestrator implements AiSessionProvider {
         }
     }
 
-    // ---- 2. Owner-Mode Background Listener WS (gemini-2.5-flash-native-audio) ----
-
-    private void startOrRestartListener(final String apiKey) {
-        stopListenerOnly();
-        listenerThread = new Thread(() -> {
-            try {
-                String url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key="
-                        + URLEncoder.encode(apiKey, "UTF-8");
-
-                WebSocket ws = new WebSocketFactory().setConnectionTimeout(12000).createSocket(url);
-                ws.setPingInterval(25000);
-                ws.addListener(new WebSocketAdapter() {
-                    @Override
-                    public void onConnected(WebSocket websocket, Map<String, List<String>> headers) {
-                        try {
-                            JSONObject genConfig = new JSONObject();
-                            genConfig.put("responseModalities", new JSONArray().put("AUDIO"));
-                            JSONObject setup = new JSONObject();
-                            setup.put("model", "models/" + LISTENER_MODEL_ID);
-                            setup.put("generationConfig", genConfig);
-                            setup.put("inputAudioTranscription", new JSONObject());
-                            setup.put("outputAudioTranscription", new JSONObject());
-                            String sys = "You are a silent background speech transcriber for a phone call.";
-                            setup.put("systemInstruction", new JSONObject().put("parts",
-                                    new JSONArray().put(new JSONObject().put("text", sys))));
-                            websocket.sendText(new JSONObject().put("setup", setup).toString());
-                        } catch (Throwable t) {
-                            CustomLogger.e(TAG, "Owner-mode listener setup error", t);
-                        }
-                    }
-
-                    @Override
-                    public void onTextMessage(WebSocket websocket, String text) {
-                        handleListenerJson(text);
-                    }
-
-                    @Override
-                    public void onBinaryMessage(WebSocket websocket, byte[] binary) {
-                        if (binary != null && binary.length > 0) {
-                            handleListenerJson(new String(binary, StandardCharsets.UTF_8));
-                        }
-                    }
-
-                    @Override
-                    public void onError(WebSocket websocket, WebSocketException cause) {
-                        CustomLogger.e(TAG, "Owner-mode listener WS error", cause);
-                    }
-
-                    @Override
-                    public void onDisconnected(WebSocket websocket, WebSocketFrame serverCloseFrame, WebSocketFrame clientCloseFrame, boolean closedByServer) {
-                        listenerSetupComplete = false;
-                        CustomLogger.i(TAG, "Owner-mode listener WS disconnected");
-                    }
-                });
-
-                this.listenerWs = ws;
-                ws.connect();
-                streamQueueToWs(ws, listenerInputQueue, false);
-            } catch (Throwable t) {
-                CustomLogger.e(TAG, "Owner-mode listener loop error", t);
-            } finally {
-                listenerSetupComplete = false;
-            }
-        }, "DualOwnerListenerWsThread");
-        listenerThread.start();
-    }
-
-    private void handleListenerJson(String rawText) {
-        if (rawText == null || rawText.isEmpty()) return;
-        try {
-            JSONObject data = new JSONObject(rawText);
-            if (data.has("setupComplete")) {
-                listenerSetupComplete = true;
-                CustomLogger.i(TAG, "Owner-mode background listener ready (" + LISTENER_MODEL_ID + ")");
-                return;
-            }
-            JSONObject sc = data.optJSONObject("serverContent");
-            if (sc == null) return;
-
-            JSONObject inTrans = sc.optJSONObject("inputTranscription");
-            if (inTrans != null) {
-                String txt = inTrans.optString("text", "");
-                if (!txt.trim().isEmpty()) {
-                    memory.addOrAppendEntry("OWNER", txt, true);
-                    if (sessionState != null) sessionState.appendTranscript("OWNER", txt);
-                }
-            }
-        } catch (Throwable t) {
-            CustomLogger.e(TAG, "Error parsing owner listener JSON", t);
-        }
-    }
-
-    // ---- Shared streaming loop ----
-
-    private void streamQueueToWs(WebSocket ws, LinkedBlockingQueue<PcmChunk> queue, boolean isSpeaker) {
-        ByteArrayOutputStream batch16k = new ByteArrayOutputStream(CHUNK_BATCH_BYTES_16K * 2);
-        while (active && ws.isOpen()) {
-            boolean ready = isSpeaker ? speakerSetupComplete : listenerSetupComplete;
-            PcmChunk chunk;
-            try {
-                chunk = queue.poll(35, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                if (!active) break;
-                continue;
-            }
-            if (chunk == null) {
-                if (batch16k.size() > 0 && ready) {
-                    sendPcm16kBatch(ws, batch16k.toByteArray());
-                    batch16k.reset();
-                }
-                continue;
-            }
-            byte[] mono = PcmResampler.toMono(chunk.data, chunk.data.length, chunk.channels);
-            byte[] pcm16k = PcmResampler.resampleMono(mono, mono.length, chunk.sampleRate, GEMINI_INPUT_RATE);
-            if (pcm16k.length > 0) {
-                batch16k.write(pcm16k, 0, pcm16k.length);
-                if (batch16k.size() >= CHUNK_BATCH_BYTES_16K && ready) {
-                    sendPcm16kBatch(ws, batch16k.toByteArray());
-                    batch16k.reset();
-                }
-            }
-        }
-    }
-
     private String buildSpeakerSetupJson(String modelId, String voiceName, String thinkingLevel) throws Exception {
-        boolean isTranscribe = modelId.contains("transcribe");
-        String modality = isTranscribe ? "TEXT" : "AUDIO";
-
         JSONObject generationConfig = new JSONObject();
-        generationConfig.put("responseModalities", new JSONArray().put(modality));
-
-        if ("AUDIO".equals(modality)) {
-            generationConfig.put("speechConfig", new JSONObject().put("voiceConfig",
-                    new JSONObject().put("prebuiltVoiceConfig", new JSONObject().put("voiceName", voiceName))));
-        }
+        generationConfig.put("responseModalities", new JSONArray().put("AUDIO"));
+        generationConfig.put("speechConfig", new JSONObject().put("voiceConfig",
+                new JSONObject().put("prebuiltVoiceConfig", new JSONObject().put("voiceName", voiceName))));
 
         if ("LOW".equals(thinkingLevel) || "HIGH".equals(thinkingLevel)) {
             generationConfig.put("thinkingConfig", new JSONObject().put("thinkingLevel", thinkingLevel));
@@ -477,24 +533,28 @@ public final class DualModelOrchestrator implements AiSessionProvider {
         JSONObject setup = new JSONObject();
         setup.put("model", modelId.startsWith("models/") ? modelId : "models/" + modelId);
         setup.put("generationConfig", generationConfig);
-        setup.put("inputAudioTranscription", new JSONObject());
-        if ("AUDIO".equals(modality)) {
-            setup.put("outputAudioTranscription", new JSONObject());
-        }
+        setup.put("outputAudioTranscription", new JSONObject());
 
-        if (!isTranscribe) {
-            String prompt = memory.buildHandoverContextPrompt(currentOwnerData);
-            setup.put("systemInstruction", new JSONObject().put("parts",
-                    new JSONArray().put(new JSONObject().put("text", prompt))));
+        String prompt = memory.buildHandoverContextPrompt(currentOwnerData);
+        setup.put("systemInstruction", new JSONObject().put("parts",
+                new JSONArray().put(new JSONObject().put("text", prompt))));
 
-            JSONObject endCallDecl = new JSONObject()
-                    .put("name", "end_call")
-                    .put("description", "End the phone call politely once the conversation is finished or the caller says goodbye.");
-            setup.put("tools", new JSONArray().put(
-                    new JSONObject().put("functionDeclarations", new JSONArray().put(endCallDecl))));
-        }
+        JSONObject endCallDecl = new JSONObject()
+                .put("name", "end_call")
+                .put("description", "End the phone call politely once the conversation is finished or the caller says goodbye.");
+        setup.put("tools", new JSONArray().put(
+                new JSONObject().put("functionDeclarations", new JSONArray().put(endCallDecl))));
 
         return new JSONObject().put("setup", setup).toString();
+    }
+
+    static JSONObject buildFastVadConfig() throws Exception {
+        JSONObject vad = new JSONObject();
+        vad.put("disabled", false);
+        vad.put("startOfSpeechSensitivity", "START_SENSITIVITY_LOW");
+        vad.put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH");
+        vad.put("silenceDurationMs", 350);
+        return new JSONObject().put("automaticActivityDetection", vad);
     }
 
     private static void sendPcm16kBatch(WebSocket ws, byte[] pcm16k) {
@@ -507,7 +567,7 @@ public final class DualModelOrchestrator implements AiSessionProvider {
             payload.put("realtimeInput", new JSONObject().put("audio", audioObj));
             ws.sendText(payload.toString());
         } catch (Throwable t) {
-            CustomLogger.e(TAG, "Error sending PCM chunk", t);
+            CustomLogger.e(TAG, "Error sending transcribe PCM chunk", t);
         }
     }
 

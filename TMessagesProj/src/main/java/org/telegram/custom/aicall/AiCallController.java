@@ -75,12 +75,17 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         state.setVideo(video);
         state.setMode(AiCallSessionState.Mode.RINGING_TIMER);
 
+        TLRPC.User peerUser = org.telegram.messenger.MessagesController.getInstance(account).getUser(userId);
+        String peerName = peerUser != null ? ContactsController.formatName(peerUser.first_name, peerUser.last_name) : "Caller";
+        AiAudioBridge.getInstance().prewarmForIncomingCall(state, config.getOwnerData(), peerName);
+
         scheduleAutoAnswer(context != null ? context.getApplicationContext() : ApplicationLoader.applicationContext, callId, false);
     }
 
     public synchronized void onPreNotificationDismissed(boolean answered) {
         cancelPendingAutoAnswer();
         if (!answered && state.getMode() == AiCallSessionState.Mode.RINGING_TIMER) {
+            AiAudioBridge.getInstance().cancelPrewarm();
             state.reset();
         }
     }
@@ -111,6 +116,9 @@ public final class AiCallController implements AiCallActionBus.CommandListener {
         state.setAccount(account);
         state.setPeerUserId(userId);
         state.setMode(AiCallSessionState.Mode.RINGING_TIMER);
+
+        String peerName = user != null ? ContactsController.formatName(user.first_name, user.last_name) : "Caller";
+        AiAudioBridge.getInstance().prewarmForIncomingCall(state, config.getOwnerData(), peerName);
 
         scheduleAutoAnswer(service.getApplicationContext(), callId, true);
     }

@@ -32,7 +32,8 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
     private static final String TAG = "GeminiLiveSession";
     private static final int GEMINI_INPUT_RATE = 16000;
     private static final int GEMINI_DEFAULT_OUTPUT_RATE = 24000;
-    private static final int CHUNK_BATCH_BYTES_16K = 3200; // 100ms at 16 kHz mono 16-bit
+    private static final int CHUNK_BATCH_BYTES_16K = 1280; // 40ms at 16 kHz mono 16-bit
+    private static final int NOISE_GATE_RMS = 180;
     private static final int MAX_INPUT_QUEUE = 120;
     private static final Pattern RATE_PATTERN = Pattern.compile("rate=(\\d+)", Pattern.CASE_INSENSITIVE);
 
@@ -53,6 +54,7 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
     private volatile boolean active = false;
     private volatile boolean setupComplete = false;
     private volatile int webrtcOutputSampleRate = 48000;
+    private volatile int webrtcOutputChannels = 1;
 
     private AiCallSessionState sessionState;
     private PcmRingBuffer aiOutputBuffer;
@@ -62,6 +64,12 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
     public void setTargetOutputSampleRate(int sampleRate) {
         if (sampleRate > 0) {
             this.webrtcOutputSampleRate = sampleRate;
+        }
+    }
+
+    public void setTargetOutputChannels(int channels) {
+        if (channels > 0) {
+            this.webrtcOutputChannels = channels;
         }
     }
 
@@ -199,7 +207,9 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
                 }
                 if (chunk == null) {
                     if (batch16k.size() > 0 && setupComplete) {
-                        sendPcm16kBatch(ws, batch16k.toByteArray());
+                        byte[] out = batch16k.toByteArray();
+                        PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
+                        sendPcm16kBatch(ws, out);
                         batch16k.reset();
                     }
                     continue;
@@ -209,7 +219,9 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
                 if (pcm16k.length > 0) {
                     batch16k.write(pcm16k, 0, pcm16k.length);
                     if (batch16k.size() >= CHUNK_BATCH_BYTES_16K && setupComplete) {
-                        sendPcm16kBatch(ws, batch16k.toByteArray());
+                        byte[] out = batch16k.toByteArray();
+                        PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
+                        sendPcm16kBatch(ws, out);
                         batch16k.reset();
                     }
                 }
@@ -303,9 +315,10 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
                             if (mimeType.startsWith("audio/") && !b64.isEmpty() && aiOutputBuffer != null) {
                                 int inRate = parseSampleRate(mimeType, GEMINI_DEFAULT_OUTPUT_RATE);
                                 byte[] pcm = Base64.decode(b64, Base64.DEFAULT);
-                                byte[] resampled = PcmResampler.resampleMono(pcm, pcm.length, inRate, webrtcOutputSampleRate);
-                                if (resampled.length > 0) {
-                                    aiOutputBuffer.write(resampled, 0, resampled.length);
+                                byte[] resampledMono = PcmResampler.resampleMono(pcm, pcm.length, inRate, webrtcOutputSampleRate);
+                                byte[] channelMatched = PcmResampler.monoToChannels(resampledMono, resampledMono.length, webrtcOutputChannels);
+                                if (channelMatched.length > 0) {
+                                    aiOutputBuffer.write(channelMatched, 0, channelMatched.length);
                                 }
                             }
                         }
@@ -377,6 +390,7 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
         if ("AUDIO".equals(modality)) {
             setup.put("outputAudioTranscription", new JSONObject());
         }
+        setup.put("realtimeInputConfig", DualModelOrchestrator.buildFastVadConfig());
 
         return new JSONObject().put("setup", setup).toString();
     }

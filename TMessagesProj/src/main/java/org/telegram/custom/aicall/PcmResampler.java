@@ -69,6 +69,26 @@ public final class PcmResampler {
     }
 
     /**
+     * Suppresses low-level phone line hum/noise below rmsThreshold so Gemini VAD
+     * detects end-of-speech immediately when the caller stops speaking.
+     */
+    public static void applyNoiseGateInPlace(byte[] monoPcm16, int len, int rmsThreshold) {
+        if (monoPcm16 == null || len < 2 || rmsThreshold <= 0) return;
+        int samples = Math.min(len, monoPcm16.length) / 2;
+        if (samples <= 0) return;
+        long sumSq = 0;
+        for (int i = 0; i < samples; i++) {
+            int idx = i * 2;
+            short s = (short) ((monoPcm16[idx] & 0xFF) | (monoPcm16[idx + 1] << 8));
+            sumSq += (long) s * s;
+        }
+        double rms = Math.sqrt(sumSq / (double) samples);
+        if (rms < rmsThreshold) {
+            java.util.Arrays.fill(monoPcm16, 0, samples * 2, (byte) 0);
+        }
+    }
+
+    /**
      * Resamples 16-bit little-endian mono PCM from srcRate to dstRate.
      * Uses bucket averaging for downsampling and linear interpolation for upsampling.
      */

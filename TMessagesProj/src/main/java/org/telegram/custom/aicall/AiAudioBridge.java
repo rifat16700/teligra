@@ -26,6 +26,7 @@ public final class AiAudioBridge {
     private final GeminiLiveSessionProvider singleProvider = new GeminiLiveSessionProvider();
     private final LocalAudioTestProvider localTestProvider = new LocalAudioTestProvider();
     private volatile AiSessionProvider sessionProvider = localTestProvider;
+    private volatile long prewarmedCallId = -1L;
 
     private final byte[] playoutScratch = new byte[SCRATCH_MAX_BYTES];
     private final byte[] recordScratch = new byte[SCRATCH_MAX_BYTES];
@@ -63,13 +64,40 @@ public final class AiAudioBridge {
         return this.sessionProvider;
     }
 
+    public synchronized void prewarmForIncomingCall(AiCallSessionState state, String ownerData, String peerName) {
+        if (state == null) return;
+        String apiKey = AiCallConfig.getInstance().getApiKey();
+        if (apiKey == null || apiKey.trim().isEmpty()) return;
+        long cid = state.getCallId();
+        if (cid != 0L && prewarmedCallId == cid) return;
+
+        memory.reset(cid, state.getPeerUserId(), peerName);
+        prewarmedCallId = cid;
+        AiSessionProvider activeProvider = selectActiveSessionProvider();
+        activeProvider.startSession(state, ownerData, aiOutputBuffer);
+        CustomLogger.i(TAG, "Pre-warmed WebSocket during ringing | serial=" + memory.getSerialId()
+                + " | provider=" + activeProvider.getClass().getSimpleName());
+    }
+
+    public synchronized void cancelPrewarm() {
+        if (prewarmedCallId == -1L) return;
+        prewarmedCallId = -1L;
+        dualOrchestrator.stopSession();
+        singleProvider.stopSession();
+        aiOutputBuffer.clear();
+    }
+
     public synchronized void onCallStarted(AiCallSessionState state, String ownerData, String peerName) {
         aiOutputBuffer.clear();
         lastAiFrameLen = 0;
         monitorPlayer.stop();
         if (state == null) return;
 
-        memory.reset(state.getCallId(), state.getPeerUserId(), peerName);
+        boolean alreadyPrewarmed = (prewarmedCallId != -1L && prewarmedCallId == state.getCallId());
+        prewarmedCallId = -1L;
+        if (!alreadyPrewarmed) {
+            memory.reset(state.getCallId(), state.getPeerUserId(), peerName);
+        }
 
         if (state.isRecordingActive()) {
             recorder.start(state.getCallId(), 48000);
@@ -77,12 +105,15 @@ public final class AiAudioBridge {
 
         AiSessionProvider activeProvider = selectActiveSessionProvider();
         if (state.isAiActive() || activeProvider == dualOrchestrator) {
-            activeProvider.startSession(state, ownerData, aiOutputBuffer);
+            if (!alreadyPrewarmed || !(activeProvider == dualOrchestrator && dualOrchestrator.isConnectedOrWarm())) {
+                activeProvider.startSession(state, ownerData, aiOutputBuffer);
+            }
         }
         if (state.isAiActive() && state.isAnonymousListenIn()) {
             monitorPlayer.start(48000);
         }
         CustomLogger.i(TAG, "Audio bridge started | serial=" + memory.getSerialId()
+                + " | prewarmed=" + alreadyPrewarmed
                 + " | ai=" + state.isAiActive()
                 + " | provider=" + activeProvider.getClass().getSimpleName());
     }
@@ -191,6 +222,7 @@ public final class AiAudioBridge {
         if (sampleRate > 0) {
             dualOrchestrator.setTargetOutputFormat(sampleRate, Math.max(1, channels));
             singleProvider.setTargetOutputSampleRate(sampleRate);
+            singleProvider.setTargetOutputChannels(Math.max(1, channels));
         }
         int len = Math.min(sizeInBytes, SCRATCH_MAX_BYTES);
 

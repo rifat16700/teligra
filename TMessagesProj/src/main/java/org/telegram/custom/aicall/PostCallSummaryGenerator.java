@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
  */
 public final class PostCallSummaryGenerator {
     private static final String TAG = "PostCallSummary";
+    private static final String SUMMARY_MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025";
 
     private PostCallSummaryGenerator() {}
 
@@ -87,7 +88,7 @@ public final class PostCallSummaryGenerator {
                         JSONObject genConfig = new JSONObject();
                         genConfig.put("responseModalities", new JSONArray().put("AUDIO"));
                         JSONObject setup = new JSONObject();
-                        setup.put("model", "models/" + DualModelOrchestrator.LISTENER_MODEL_ID);
+                        setup.put("model", "models/" + SUMMARY_MODEL_ID);
                         setup.put("generationConfig", genConfig);
                         setup.put("outputAudioTranscription", new JSONObject());
                         websocket.sendText(new JSONObject().put("setup", setup).toString());

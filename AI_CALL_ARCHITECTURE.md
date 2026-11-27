@@ -69,6 +69,6 @@ This document tracks the architecture, user requirements, and phased implementat
   - **Multi-Handover Memory & Post-Call Report**: `CallContextMemory` + `PostCallSummaryGenerator` merges all AI & Owner phases into a detailed post-call explanation and serial-tagged `#nc-call-r` Saved Messages upload.
   - **Chat-Style Live Calling UI (`AiCallOverlayView`) & Saved Messages Archive Button**:
     - `AiCallOverlayView` covers `VoIPFragment` natively with animated dark-glass bubbles, live timer, Hide/Show pill, Take Over / Return to AI, Anonymous Listen, and End Call.
-    - Direct low-latency (~1–2s) audio streaming to selected Voice model while AI is active + `gemini-2.5-flash-native-audio-preview-12-2025` background listener during Owner mode.
+    - **Instant-Reply Dual Pipeline**: `gemini-3.5-transcribe-live` (`TEXT` STT + Fast 350ms VAD + Noise Gate + 450ms flush) feeds finalized caller text directly into pre-connected selected Voice model (e.g. `gemini-3.8-live`) via `clientContent(turnComplete=true)` for ~1–1.5s replies, plus ring-time WebSocket pre-warming.
     - Dedicated top-bar button inside Saved Messages (`ChatActivity`) opening `AiCallHistoryActivity` + `AiCallDetailActivity` (`#nc-call-r` filter).
     - Fast GitHub Actions caching for C++ `.cxx` & Android NDK/CMake in `.github/workflows/build-apk.yml`.
