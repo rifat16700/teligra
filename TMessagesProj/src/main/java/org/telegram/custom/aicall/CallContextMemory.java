@@ -120,9 +120,21 @@ public final class CallContextMemory {
     }
 
     public String buildHandoverContextPrompt(String ownerData) {
+        AiCallConfig config = AiCallConfig.getInstance();
+        String profileInstruction = config.getEffectiveProfileInstruction();
+        String emotionInstruction = config.getEffectiveEmotionInstruction();
+
         StringBuilder sb = new StringBuilder();
         sb.append("You are answering a live Telegram voice call on behalf of the owner. ");
-        sb.append("Speak naturally, concisely, and strictly follow the owner's information below.\n");
+        sb.append("Respond naturally, concisely, and strictly based on the owner's information below.\n");
+        if (!profileInstruction.isEmpty()) {
+            sb.append("\n[Role & Use-Case Profile: ").append(config.getProfileLabel()).append("]\n")
+                    .append(profileInstruction).append("\n");
+        }
+        if (!emotionInstruction.isEmpty()) {
+            sb.append("\n[Voice Emotion & Speaking Style]\n")
+                    .append(emotionInstruction).append("\n");
+        }
         if (ownerData != null && !ownerData.trim().isEmpty()) {
             sb.append("\n[Owner Data]\n").append(ownerData.trim()).append("\n");
         } else {

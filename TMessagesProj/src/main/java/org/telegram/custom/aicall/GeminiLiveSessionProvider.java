@@ -360,11 +360,26 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
         JSONObject setup = new JSONObject();
         setup.put("model", modelId.startsWith("models/") ? modelId : "models/" + modelId);
         setup.put("generationConfig", generationConfig);
+        if (modelId.contains("gemini-2.5")) {
+            setup.put("enableAffectiveDialog", true);
+        }
 
         if (!isTranscribe) {
+            AiCallConfig config = AiCallConfig.getInstance();
+            String profileInstruction = config.getEffectiveProfileInstruction();
+            String emotionInstruction = config.getEffectiveEmotionInstruction();
+
             StringBuilder sys = new StringBuilder();
             sys.append("You are answering a live Telegram voice call on behalf of the owner. ");
             sys.append("Speak naturally, politely, and concisely. Answer strictly based on the owner's saved information below.\n");
+            if (!profileInstruction.isEmpty()) {
+                sys.append("\n[Role & Use-Case Profile: ").append(config.getProfileLabel()).append("]\n")
+                        .append(profileInstruction).append("\n");
+            }
+            if (!emotionInstruction.isEmpty()) {
+                sys.append("\n[Voice Emotion & Speaking Style]\n")
+                        .append(emotionInstruction).append("\n");
+            }
             if (ownerData != null && !ownerData.trim().isEmpty()) {
                 sys.append("\n[Owner Data]\n").append(ownerData.trim()).append("\n");
             } else {

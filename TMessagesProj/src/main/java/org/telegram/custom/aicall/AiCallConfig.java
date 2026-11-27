@@ -7,8 +7,8 @@ import org.telegram.messenger.ApplicationLoader;
 
 /**
  * Persistent configuration for the AI Auto-Answer & Composable Call system.
- * Stores user preferences, ring delay (0-60s), owner knowledge/instructions,
- * and local BYOK Gemini Live API settings.
+ * Includes 7 pre-built use-case profiles, all 30 Gemini Studio voices,
+ * emotion/speaking-style presets, owner knowledge/instructions, and BYOK Gemini Live settings.
  */
 public final class AiCallConfig {
     private static final String PREFS_NAME = "custom_ai_call_prefs";
@@ -27,6 +27,11 @@ public final class AiCallConfig {
     private static final String KEY_THINKING_LEVEL = "gemini_thinking_level";
     private static final String KEY_DUAL_MODEL_ENABLED = "dual_model_enabled";
 
+    // Pre-built use-case profiles & emotion styling
+    private static final String KEY_PROFILE_ID = "ai_profile_id";
+    private static final String KEY_EMOTION_ID = "ai_emotion_id";
+    private static final String KEY_CUSTOM_EMOTION = "ai_custom_emotion";
+
     public static final int MIN_RING_DELAY_SECONDS = 0;
     public static final int MAX_RING_DELAY_SECONDS = 60;
     public static final int DEFAULT_RING_DELAY_SECONDS = 10;
@@ -41,16 +46,88 @@ public final class AiCallConfig {
     };
 
     public static final String[] MODEL_LABELS = {
-            "Gemini 3.8 Live",
+            "Gemini 3.8 Live (Recommended)",
             "Gemini 3.8 Live Extended Thinking",
             "Gemini 3.5 Transcribe Live",
             "Gemini 3.5 Live Translate",
             "Gemini 3 Flash Live",
-            "Gemini 2.5 Flash Native Audio Dialog"
+            "Gemini 2.5 Flash Native Audio (Affective)"
     };
 
     public static final String[] VOICE_NAMES = {
-            "Kore", "Puck", "Charon", "Fenrir", "Aoede", "Zephyr"
+            "Sulafat", "Achird", "Kore", "Vindemiatrix", "Zubenelgenubi",
+            "Sadachbia", "Puck", "Zephyr", "Charon", "Fenrir",
+            "Aoede", "Leda", "Orus", "Callirrhoe", "Autonoe",
+            "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina",
+            "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar",
+            "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Sadaltager"
+    };
+
+    public static final String[] VOICE_LABELS = {
+            "Sulafat — Warm", "Achird — Friendly", "Kore — Firm", "Vindemiatrix — Gentle", "Zubenelgenubi — Casual",
+            "Sadachbia — Lively", "Puck — Upbeat", "Zephyr — Bright", "Charon — Informative", "Fenrir — Excitable",
+            "Aoede — Breezy", "Leda — Youthful", "Orus — Firm", "Callirrhoe — Easy-going", "Autonoe — Bright",
+            "Enceladus — Breathy", "Iapetus — Clear", "Umbriel — Easy-going", "Algieba — Smooth", "Despina — Smooth",
+            "Erinome — Clear", "Algenib — Gravelly", "Rasalgethi — Informative", "Laomedeia — Upbeat", "Achernar — Soft",
+            "Alnilam — Firm", "Schedar — Even", "Gacrux — Mature", "Pulcherrima — Forward", "Sadaltager — Knowledgeable"
+    };
+
+    public static final String[] PROFILE_IDS = {
+            "personal", "business", "busy", "support", "family", "privacy", "custom"
+    };
+
+    public static final String[] PROFILE_LABELS = {
+            "Personal Assistant",
+            "Business / Receptionist",
+            "Busy / Driving / Meeting",
+            "Customer Support / Sales",
+            "Friends & Family (Casual)",
+            "Strict Privacy / Screening",
+            "Custom Profile"
+    };
+
+    public static final String[] PROFILE_PROMPTS = {
+            "Act as the owner's polite personal assistant. Greet warmly, explain availability from Owner Data, and offer to take a clear message.",
+            "Act as a courteous business receptionist. Speak professionally, answer inquiries strictly using Owner Data, and collect caller name, company, and callback reason.",
+            "The owner is currently busy, driving, or in a meeting. Keep answers under 15 seconds, ask if it is urgent, and promise a callback.",
+            "Act as a helpful customer support and sales assistant. Be upbeat, answer product or service questions using Owner Data, and note follow-up requests.",
+            "Speak like a friendly, natural human speaking to friends or family. Keep it relaxed, warm, and conversational while sharing the owner's status.",
+            "Be polite yet cautious with unknown callers. Do not share private personal details unless the caller clearly identifies themselves and their purpose.",
+            ""
+    };
+
+    public static final String[] PROFILE_DEFAULT_VOICES = {
+            "Sulafat", "Kore", "Charon", "Achird", "Zubenelgenubi", "Orus", "Sulafat"
+    };
+
+    public static final String[] PROFILE_DEFAULT_EMOTIONS = {
+            "warm", "professional", "concise", "friendly", "casual", "professional", "warm"
+    };
+
+    public static final String[] EMOTION_IDS = {
+            "warm", "friendly", "professional", "empathetic", "energetic", "casual", "concise", "custom"
+    };
+
+    public static final String[] EMOTION_LABELS = {
+            "Natural & Warm",
+            "Friendly & Cheerful",
+            "Calm & Professional",
+            "Empathetic & Soft",
+            "Energetic & Lively",
+            "Relaxed & Human Casual",
+            "Serious & Concise",
+            "Custom Emotion Style..."
+    };
+
+    public static final String[] EMOTION_INSTRUCTIONS = {
+            "Speak with genuine warmth, natural human rhythm, soft pauses, and polite emotional inflection—never robotic.",
+            "Sound genuinely cheerful, smiling, welcoming, and upbeat while keeping responses natural and concise.",
+            "Use a calm, steady, confident, and polished professional tone with clear pacing.",
+            "Use a gentle, caring, empathetic tone—soften your voice if the caller sounds stressed or upset.",
+            "Sound lively, enthusiastic, and expressive with natural energy in your delivery.",
+            "Speak casually and effortlessly like a close friend—natural pauses, relaxed phrasing, zero stiffness.",
+            "Keep your tone serious, direct, respectful, and ultra-concise with no filler.",
+            ""
     };
 
     public static final String[] API_VERSIONS = {
@@ -149,13 +226,22 @@ public final class AiCallConfig {
     }
 
     public String getVoiceName() {
-        String voice = prefs.getString(KEY_VOICE_NAME, "Kore");
-        return (voice == null || voice.trim().isEmpty()) ? "Kore" : voice.trim();
+        String voice = prefs.getString(KEY_VOICE_NAME, "Sulafat");
+        return (voice == null || voice.trim().isEmpty()) ? "Sulafat" : voice.trim();
     }
 
     public void setVoiceName(String voiceName) {
-        String value = (voiceName == null || voiceName.trim().isEmpty()) ? "Kore" : voiceName.trim();
+        String value = (voiceName == null || voiceName.trim().isEmpty()) ? "Sulafat" : voiceName.trim();
         prefs.edit().putString(KEY_VOICE_NAME, value).apply();
+    }
+
+    public String getVoiceDisplayLabel(String voiceName) {
+        for (int i = 0; i < VOICE_NAMES.length; i++) {
+            if (VOICE_NAMES[i].equals(voiceName)) {
+                return VOICE_LABELS[i];
+            }
+        }
+        return voiceName;
     }
 
     public String getThinkingLevel() {
@@ -177,6 +263,84 @@ public final class AiCallConfig {
         prefs.edit().putBoolean(KEY_DUAL_MODEL_ENABLED, enabled).apply();
     }
 
+    public String getProfileId() {
+        String id = prefs.getString(KEY_PROFILE_ID, PROFILE_IDS[0]);
+        return (id == null || id.trim().isEmpty()) ? PROFILE_IDS[0] : id.trim();
+    }
+
+    public void applyUseCaseProfile(String profileId) {
+        int idx = 0;
+        for (int i = 0; i < PROFILE_IDS.length; i++) {
+            if (PROFILE_IDS[i].equals(profileId)) {
+                idx = i;
+                break;
+            }
+        }
+        SharedPreferences.Editor ed = prefs.edit().putString(KEY_PROFILE_ID, PROFILE_IDS[idx]);
+        if (!"custom".equals(PROFILE_IDS[idx])) {
+            ed.putString(KEY_VOICE_NAME, PROFILE_DEFAULT_VOICES[idx]);
+            ed.putString(KEY_EMOTION_ID, PROFILE_DEFAULT_EMOTIONS[idx]);
+        }
+        ed.apply();
+    }
+
+    public String getProfileLabel() {
+        String id = getProfileId();
+        for (int i = 0; i < PROFILE_IDS.length; i++) {
+            if (PROFILE_IDS[i].equals(id)) return PROFILE_LABELS[i];
+        }
+        return PROFILE_LABELS[0];
+    }
+
+    public String getEffectiveProfileInstruction() {
+        String id = getProfileId();
+        for (int i = 0; i < PROFILE_IDS.length; i++) {
+            if (PROFILE_IDS[i].equals(id)) return PROFILE_PROMPTS[i];
+        }
+        return "";
+    }
+
+    public String getEmotionId() {
+        String id = prefs.getString(KEY_EMOTION_ID, EMOTION_IDS[0]);
+        return (id == null || id.trim().isEmpty()) ? EMOTION_IDS[0] : id.trim();
+    }
+
+    public void setEmotionId(String emotionId) {
+        String val = (emotionId == null || emotionId.trim().isEmpty()) ? EMOTION_IDS[0] : emotionId.trim();
+        prefs.edit().putString(KEY_EMOTION_ID, val).apply();
+    }
+
+    public String getCustomEmotion() {
+        return prefs.getString(KEY_CUSTOM_EMOTION, "");
+    }
+
+    public void setCustomEmotion(String customEmotion) {
+        prefs.edit().putString(KEY_CUSTOM_EMOTION, customEmotion == null ? "" : customEmotion.trim()).apply();
+    }
+
+    public String getEmotionLabel() {
+        String id = getEmotionId();
+        if ("custom".equals(id)) {
+            String custom = getCustomEmotion();
+            return custom.isEmpty() ? "Custom" : ("Custom: " + (custom.length() > 22 ? custom.substring(0, 22) + "..." : custom));
+        }
+        for (int i = 0; i < EMOTION_IDS.length; i++) {
+            if (EMOTION_IDS[i].equals(id)) return EMOTION_LABELS[i];
+        }
+        return EMOTION_LABELS[0];
+    }
+
+    public String getEffectiveEmotionInstruction() {
+        String id = getEmotionId();
+        if ("custom".equals(id)) {
+            return getCustomEmotion();
+        }
+        for (int i = 0; i < EMOTION_IDS.length; i++) {
+            if (EMOTION_IDS[i].equals(id)) return EMOTION_INSTRUCTIONS[i];
+        }
+        return EMOTION_INSTRUCTIONS[0];
+    }
+
     public void applyModelPreset(String modelId) {
         String target = (modelId == null || modelId.trim().isEmpty()) ? MODEL_IDS[0] : modelId.trim();
         boolean isExtendedThinking = "gemini-3.8-live-extended-thinking".equals(target);
@@ -194,7 +358,7 @@ public final class AiCallConfig {
                 return MODEL_LABELS[i];
             }
         }
-        return "Custom (" + modelId + ")";
+        return modelId;
     }
 
     public static int clampRingDelay(int seconds) {

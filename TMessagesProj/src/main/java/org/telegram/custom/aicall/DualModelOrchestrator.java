@@ -534,6 +534,9 @@ public final class DualModelOrchestrator implements AiSessionProvider {
         setup.put("model", modelId.startsWith("models/") ? modelId : "models/" + modelId);
         setup.put("generationConfig", generationConfig);
         setup.put("outputAudioTranscription", new JSONObject());
+        if (modelId.contains("gemini-2.5")) {
+            setup.put("enableAffectiveDialog", true);
+        }
 
         String prompt = memory.buildHandoverContextPrompt(currentOwnerData);
         setup.put("systemInstruction", new JSONObject().put("parts",
