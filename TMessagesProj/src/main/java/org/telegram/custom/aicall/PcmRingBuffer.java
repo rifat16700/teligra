@@ -4,15 +4,17 @@ import java.util.Arrays;
 
 /**
  * Thread-safe circular byte buffer with jitter pre-buffering for 16-bit PCM audio.
- * Holds ~140ms of audio before starting playback so network jitter never causes
- * 10ms chop/stutter artifacts in WebRTC output.
+ * Gemini Live streams voice chunks much faster than 1x real-time playback, so
+ * capacity defaults to 60s mono (30s stereo) and grows dynamically up to 120s
+ * mono (60s stereo) to ensure long AI replies never drop or skip middle audio.
  */
 public final class PcmRingBuffer {
-    public static final int DEFAULT_CAPACITY_BYTES = 288_000; // ~3.0s at 48 kHz mono 16-bit
-    public static final int DEFAULT_PREBUFFER_BYTES = 7_680; // ~80ms at 48 kHz mono 16-bit
+    public static final int DEFAULT_CAPACITY_BYTES = 5_760_000; // 60s at 48 kHz mono 16-bit (30s stereo)
+    public static final int MAX_CAPACITY_BYTES = 11_520_000;    // 120s at 48 kHz mono 16-bit (60s stereo)
+    public static final int DEFAULT_PREBUFFER_BYTES = 7_680;    // ~80ms at 48 kHz mono 16-bit
 
-    private final byte[] buffer;
-    private final int capacity;
+    private byte[] buffer;
+    private int capacity;
     private final int prebufferBytes;
     private int readPos = 0;
     private int writePos = 0;
@@ -39,6 +41,14 @@ public final class PcmRingBuffer {
         }
         int srcOffset = offset;
         int remaining = length;
+
+        if (size + remaining > capacity && capacity < MAX_CAPACITY_BYTES) {
+            int newCap = Math.min(MAX_CAPACITY_BYTES, Math.max(capacity * 2, size + remaining));
+            if (newCap > capacity) {
+                growCapacity(newCap);
+            }
+        }
+
         if (remaining > capacity) {
             srcOffset += (remaining - capacity);
             remaining = capacity;
@@ -60,6 +70,22 @@ public final class PcmRingBuffer {
         if (priming && size >= prebufferBytes) {
             priming = false;
         }
+    }
+
+    private void growCapacity(int newCapacity) {
+        byte[] next = new byte[newCapacity];
+        if (size > 0) {
+            int firstChunk = Math.min(size, capacity - readPos);
+            System.arraycopy(buffer, readPos, next, 0, firstChunk);
+            int secondChunk = size - firstChunk;
+            if (secondChunk > 0) {
+                System.arraycopy(buffer, 0, next, firstChunk, secondChunk);
+            }
+        }
+        buffer = next;
+        capacity = newCapacity;
+        readPos = 0;
+        writePos = size;
     }
 
     public synchronized int read(byte[] dst, int offset, int length) {
