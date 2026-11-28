@@ -120,9 +120,17 @@ android {
     ndkVersion "27.2.12479018"
 
 
-    externalNativeBuild {
-        cmake {
-            path 'jni/CMakeLists.txt'
+    if (!project.hasProperty("usePrebuiltJni")) {
+        externalNativeBuild {
+            cmake {
+                path 'jni/CMakeLists.txt'
+            }
+        }
+    } else {
+        sourceSets {
+            main {
+                jniLibs.srcDirs += ['build/prebuiltJniLibs']
+            }
         }
     }
 
@@ -157,11 +165,13 @@ android {
 
         multiDexEnabled true
 
-        externalNativeBuild {
-            cmake {
-                version '3.22.1'
-                arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-23' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
-                targets 'tmessages.49', 'twidget'
+        if (!project.hasProperty("usePrebuiltJni")) {
+            externalNativeBuild {
+                cmake {
+                    version '3.22.1'
+                    arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-23' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+                    targets 'tmessages.49', 'twidget'
+                }
             }
         }
     }

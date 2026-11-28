@@ -33,6 +33,7 @@ public final class AiCallHistoryStore {
         public long durationSec = 0L;
         public int handoverCount = 0;
         public String audioFilePath = "";
+        public String summaryAudioFilePath = "";
         public String detailedSummary = "";
         public List<CallContextMemory.ChatEntry> messages = new ArrayList<>();
     }
@@ -62,6 +63,7 @@ public final class AiCallHistoryStore {
             obj.put("durationSec", record.durationSec);
             obj.put("handoverCount", record.handoverCount);
             obj.put("audioFilePath", record.audioFilePath != null ? record.audioFilePath : "");
+            obj.put("summaryAudioFilePath", record.summaryAudioFilePath != null ? record.summaryAudioFilePath : "");
             obj.put("detailedSummary", record.detailedSummary != null ? record.detailedSummary : "");
 
             JSONArray arr = new JSONArray();
@@ -105,6 +107,7 @@ public final class AiCallHistoryStore {
                 r.durationSec = obj.optLong("durationSec", 0L);
                 r.handoverCount = obj.optInt("handoverCount", 0);
                 r.audioFilePath = obj.optString("audioFilePath", "");
+                r.summaryAudioFilePath = obj.optString("summaryAudioFilePath", "");
                 r.detailedSummary = obj.optString("detailedSummary", "");
 
                 JSONArray arr = obj.optJSONArray("messages");

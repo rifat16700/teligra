@@ -41,8 +41,6 @@ public final class DualModelOrchestrator implements AiSessionProvider {
     private static final int GEMINI_INPUT_RATE = 16000;
     private static final int GEMINI_DEFAULT_OUTPUT_RATE = 24000;
     private static final int CHUNK_BATCH_BYTES_16K = 1280; // 40ms at 16 kHz mono 16-bit
-    private static final int NOISE_GATE_RMS = 180;
-    private static final long DEBOUNCE_FLUSH_MS = 450L;
     private static final int MAX_INPUT_QUEUE = 100;
     private static final Pattern RATE_PATTERN = Pattern.compile("rate=(\\d+)", Pattern.CASE_INSENSITIVE);
 
@@ -77,7 +75,6 @@ public final class DualModelOrchestrator implements AiSessionProvider {
     private Thread speakerConnectThread;
 
     private final StringBuilder pendingCallerTurn = new StringBuilder();
-    private final Runnable debounceFlushRunnable = this::flushPendingCallerTurn;
 
     public DualModelOrchestrator(CallContextMemory memory) {
         this.memory = memory;
@@ -110,7 +107,6 @@ public final class DualModelOrchestrator implements AiSessionProvider {
             synchronized (pendingCallerTurn) {
                 pendingCallerTurn.setLength(0);
             }
-            AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
             startTranscribeLoop(apiKey);
         }
 
@@ -159,7 +155,6 @@ public final class DualModelOrchestrator implements AiSessionProvider {
 
     public synchronized void stopSpeakerOnly() {
         speakerSetupComplete = false;
-        AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
         synchronized (pendingCallerTurn) {
             pendingCallerTurn.setLength(0);
         }
@@ -218,6 +213,11 @@ public final class DualModelOrchestrator implements AiSessionProvider {
                             setup.put("generationConfig", genConfig);
                             setup.put("inputAudioTranscription", new JSONObject());
                             setup.put("realtimeInputConfig", buildFastVadConfig());
+                            String sttPrompt = "Transcribe only clear human speech accurately in Bengali, Banglish, or English. "
+                                    + "Never guess or hallucinate words from background noise. "
+                                    + "If human speech is present but too distorted by noise to understand, output only: [UNCLEAR]";
+                            setup.put("systemInstruction", new JSONObject().put("parts",
+                                    new JSONArray().put(new JSONObject().put("text", sttPrompt))));
 
                             websocket.sendText(new JSONObject().put("setup", setup).toString());
                         } catch (Throwable t) {
@@ -264,7 +264,6 @@ public final class DualModelOrchestrator implements AiSessionProvider {
                     if (chunk == null) {
                         if (batch16k.size() > 0 && transcribeSetupComplete) {
                             byte[] out = batch16k.toByteArray();
-                            PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
                             sendPcm16kBatch(ws, out);
                             batch16k.reset();
                         }
@@ -276,7 +275,6 @@ public final class DualModelOrchestrator implements AiSessionProvider {
                         batch16k.write(pcm16k, 0, pcm16k.length);
                         if (batch16k.size() >= CHUNK_BATCH_BYTES_16K && transcribeSetupComplete) {
                             byte[] out = batch16k.toByteArray();
-                            PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
                             sendPcm16kBatch(ws, out);
                             batch16k.reset();
                         }
@@ -329,14 +327,11 @@ public final class DualModelOrchestrator implements AiSessionProvider {
                             if (pendingCallerTurn.length() > 0) pendingCallerTurn.append(' ');
                             pendingCallerTurn.append(txt.trim());
                         }
-                        AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
-                        AndroidUtilities.runOnUIThread(debounceFlushRunnable, DEBOUNCE_FLUSH_MS);
                     }
                 }
             }
 
             if (sc.optBoolean("turnComplete", false) && isAiTurn) {
-                AndroidUtilities.cancelRunOnUIThread(debounceFlushRunnable);
                 flushPendingCallerTurn();
             }
         } catch (Throwable t) {

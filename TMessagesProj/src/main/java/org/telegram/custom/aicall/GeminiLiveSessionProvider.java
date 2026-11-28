@@ -33,7 +33,6 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
     private static final int GEMINI_INPUT_RATE = 16000;
     private static final int GEMINI_DEFAULT_OUTPUT_RATE = 24000;
     private static final int CHUNK_BATCH_BYTES_16K = 1280; // 40ms at 16 kHz mono 16-bit
-    private static final int NOISE_GATE_RMS = 180;
     private static final int MAX_INPUT_QUEUE = 120;
     private static final Pattern RATE_PATTERN = Pattern.compile("rate=(\\d+)", Pattern.CASE_INSENSITIVE);
 
@@ -208,7 +207,6 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
                 if (chunk == null) {
                     if (batch16k.size() > 0 && setupComplete) {
                         byte[] out = batch16k.toByteArray();
-                        PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
                         sendPcm16kBatch(ws, out);
                         batch16k.reset();
                     }
@@ -220,7 +218,6 @@ public final class GeminiLiveSessionProvider implements AiSessionProvider {
                     batch16k.write(pcm16k, 0, pcm16k.length);
                     if (batch16k.size() >= CHUNK_BATCH_BYTES_16K && setupComplete) {
                         byte[] out = batch16k.toByteArray();
-                        PcmResampler.applyNoiseGateInPlace(out, out.length, NOISE_GATE_RMS);
                         sendPcm16kBatch(ws, out);
                         batch16k.reset();
                     }

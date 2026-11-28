@@ -8,7 +8,8 @@ import org.telegram.messenger.ApplicationLoader;
 /**
  * Persistent configuration for the AI Auto-Answer & Composable Call system.
  * Includes 7 pre-built use-case profiles, all 30 Gemini Studio voices,
- * emotion/speaking-style presets, owner knowledge/instructions, and BYOK Gemini Live settings.
+ * emotion/speaking-style presets, owner knowledge/instructions, and BYOK Gemini
+ * Live settings.
  */
 public final class AiCallConfig {
     private static final String PREFS_NAME = "custom_ai_call_prefs";
@@ -68,7 +69,8 @@ public final class AiCallConfig {
             "Sadachbia — Lively", "Puck — Upbeat", "Zephyr — Bright", "Charon — Informative", "Fenrir — Excitable",
             "Aoede — Breezy", "Leda — Youthful", "Orus — Firm", "Callirrhoe — Easy-going", "Autonoe — Bright",
             "Enceladus — Breathy", "Iapetus — Clear", "Umbriel — Easy-going", "Algieba — Smooth", "Despina — Smooth",
-            "Erinome — Clear", "Algenib — Gravelly", "Rasalgethi — Informative", "Laomedeia — Upbeat", "Achernar — Soft",
+            "Erinome — Clear", "Algenib — Gravelly", "Rasalgethi — Informative", "Laomedeia — Upbeat",
+            "Achernar — Soft",
             "Alnilam — Firm", "Schedar — Even", "Gacrux — Mature", "Pulcherrima — Forward", "Sadaltager — Knowledgeable"
     };
 
@@ -246,7 +248,8 @@ public final class AiCallConfig {
 
     public String getThinkingLevel() {
         String level = prefs.getString(KEY_THINKING_LEVEL, "OFF");
-        if ("LOW".equals(level) || "HIGH".equals(level)) return level;
+        if ("LOW".equals(level) || "HIGH".equals(level))
+            return level;
         return "OFF";
     }
 
@@ -287,7 +290,8 @@ public final class AiCallConfig {
     public String getProfileLabel() {
         String id = getProfileId();
         for (int i = 0; i < PROFILE_IDS.length; i++) {
-            if (PROFILE_IDS[i].equals(id)) return PROFILE_LABELS[i];
+            if (PROFILE_IDS[i].equals(id))
+                return PROFILE_LABELS[i];
         }
         return PROFILE_LABELS[0];
     }
@@ -295,7 +299,8 @@ public final class AiCallConfig {
     public String getEffectiveProfileInstruction() {
         String id = getProfileId();
         for (int i = 0; i < PROFILE_IDS.length; i++) {
-            if (PROFILE_IDS[i].equals(id)) return PROFILE_PROMPTS[i];
+            if (PROFILE_IDS[i].equals(id))
+                return PROFILE_PROMPTS[i];
         }
         return "";
     }
@@ -322,10 +327,12 @@ public final class AiCallConfig {
         String id = getEmotionId();
         if ("custom".equals(id)) {
             String custom = getCustomEmotion();
-            return custom.isEmpty() ? "Custom" : ("Custom: " + (custom.length() > 22 ? custom.substring(0, 22) + "..." : custom));
+            return custom.isEmpty() ? "Custom"
+                    : ("Custom: " + (custom.length() > 22 ? custom.substring(0, 22) + "..." : custom));
         }
         for (int i = 0; i < EMOTION_IDS.length; i++) {
-            if (EMOTION_IDS[i].equals(id)) return EMOTION_LABELS[i];
+            if (EMOTION_IDS[i].equals(id))
+                return EMOTION_LABELS[i];
         }
         return EMOTION_LABELS[0];
     }
@@ -336,7 +343,8 @@ public final class AiCallConfig {
             return getCustomEmotion();
         }
         for (int i = 0; i < EMOTION_IDS.length; i++) {
-            if (EMOTION_IDS[i].equals(id)) return EMOTION_INSTRUCTIONS[i];
+            if (EMOTION_IDS[i].equals(id))
+                return EMOTION_INSTRUCTIONS[i];
         }
         return EMOTION_INSTRUCTIONS[0];
     }
@@ -352,7 +360,8 @@ public final class AiCallConfig {
     }
 
     public String getPresetLabelForModel(String modelId) {
-        if (modelId == null) return "Custom";
+        if (modelId == null)
+            return "Custom";
         for (int i = 0; i < MODEL_IDS.length; i++) {
             if (MODEL_IDS[i].equals(modelId)) {
                 return MODEL_LABELS[i];
@@ -362,8 +371,10 @@ public final class AiCallConfig {
     }
 
     public static int clampRingDelay(int seconds) {
-        if (seconds < MIN_RING_DELAY_SECONDS) return MIN_RING_DELAY_SECONDS;
-        if (seconds > MAX_RING_DELAY_SECONDS) return MAX_RING_DELAY_SECONDS;
+        if (seconds < MIN_RING_DELAY_SECONDS)
+            return MIN_RING_DELAY_SECONDS;
+        if (seconds > MAX_RING_DELAY_SECONDS)
+            return MAX_RING_DELAY_SECONDS;
         return seconds;
     }
 }

@@ -72,3 +72,10 @@ This document tracks the architecture, user requirements, and phased implementat
     - **Instant-Reply Dual Pipeline**: `gemini-3.5-transcribe-live` (`TEXT` STT + Fast 350ms VAD + Noise Gate + 450ms flush) feeds finalized caller text directly into pre-connected selected Voice model (e.g. `gemini-3.8-live`) via `clientContent(turnComplete=true)` for ~1–1.5s replies, plus ring-time WebSocket pre-warming.
     - Dedicated top-bar button inside Saved Messages (`ChatActivity`) opening `AiCallHistoryActivity` + `AiCallDetailActivity` (`#nc-call-r` filter).
     - Fast GitHub Actions caching for C++ `.cxx` & Android NDK/CMake in `.github/workflows/build-apk.yml`.
+- **Phase 7 (Implemented)**:
+  - `[UNCLEAR]` anti-hallucination gatekeeper loop (no client-side noise gate or VAD clipping; Gemini server VAD decides turn end).
+  - `CallerProfileStore` (per-contact Caller Data + automatic 2–3 line low-weight rolling memory).
+  - `PostCallSummaryGenerator` generates both **Bengali Voice Summary WAV** + **Detailed Bengali Text Summary** using the user's selected AI model.
+  - Telegram-style `AiCallHistoryActivity` (avatars + serial IDs) and 2-tab `AiCallDetailActivity` (`Recording & Chat` | `AI Summary (বাংলা)`).
+  - In-chat `AI Call` & `AI Caller Data` actions inside 1-to-1 chat menus (`ChatActivity` + `AiCallHooks`).
+  - Auto-triggered GitHub Actions workflow (`on: push: feature/ai-auto-answer`) with prebuilt `.so` caching (`-PusePrebuiltJni=true`).

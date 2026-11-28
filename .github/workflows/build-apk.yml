@@ -2,6 +2,9 @@ name: Build Standalone Debug APK (arm64-v8a)
 
 on:
   workflow_dispatch: {}
+  push:
+    branches:
+      - feature/ai-auto-answer
 
 jobs:
   build:
@@ -53,16 +56,12 @@ jobs:
             "ndk;27.2.12479018" \
             "cmake;3.22.1"
 
-      - name: Cache Compiled C++ Native Objects (arm64-v8a)
+      - name: Cache Prebuilt Native .so Libraries (arm64-v8a)
+        id: cache-so
         uses: actions/cache@v4
         with:
-          path: |
-            TMessagesProj/.cxx
-            TMessagesProj/build/intermediates/cxx
-            TMessagesProj_Modules/media/build
-          key: cxx-arm64-${{ hashFiles('TMessagesProj/jni/CMakeLists.txt', 'TMessagesProj/jni/voip/CMakeLists.txt', 'TMessagesProj/build.gradle') }}
-          restore-keys: |
-            cxx-arm64-
+          path: .native-cache/arm64-v8a
+          key: prebuilt-so-arm64-${{ hashFiles('TMessagesProj/jni/CMakeLists.txt', 'TMessagesProj/jni/voip/CMakeLists.txt', 'TMessagesProj/build.gradle') }}
 
       - name: Generate local.properties
         env:
@@ -75,13 +74,29 @@ jobs:
           APP_HASH=${APP_HASH:-00000000000000000000000000000000}
           EOF
 
-      - name: Build arm64-v8a Standalone Debug APK
+      - name: Build arm64-v8a Standalone Debug APK (Fast Prebuilt JNI)
+        if: steps.cache-so.outputs.cache-hit == 'true'
+        run: |
+          mkdir -p TMessagesProj/build/prebuiltJniLibs/arm64-v8a
+          cp -f .native-cache/arm64-v8a/*.so TMessagesProj/build/prebuiltJniLibs/arm64-v8a/
+          chmod +x ./gradlew
+          ./gradlew :TMessagesProj_AppStandalone:assembleAfatDebug \
+            -PtargetAbi=arm64-v8a \
+            -PusePrebuiltJni=true \
+            --build-cache \
+            --no-daemon
+
+      - name: Build arm64-v8a Standalone Debug APK (Full NDK Build)
+        if: steps.cache-so.outputs.cache-hit != 'true'
         run: |
           chmod +x ./gradlew
           ./gradlew :TMessagesProj_AppStandalone:assembleAfatDebug \
             -PtargetAbi=arm64-v8a \
             --build-cache \
             --no-daemon
+          mkdir -p .native-cache/arm64-v8a
+          find TMessagesProj/build/intermediates/cxx -type f -name "*.so" -path "*arm64-v8a*" -exec cp -f {} .native-cache/arm64-v8a/ \;
+          ls -lh .native-cache/arm64-v8a
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4

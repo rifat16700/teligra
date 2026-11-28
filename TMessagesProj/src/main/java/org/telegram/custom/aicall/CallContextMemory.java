@@ -39,6 +39,7 @@ public final class CallContextMemory {
     private final CopyOnWriteArrayList<ChatUpdateListener> listeners = new CopyOnWriteArrayList<>();
 
     private volatile String serialId = "";
+    private volatile long peerUserId = 0L;
     private volatile String peerName = "Caller";
     private volatile int handoverCount = 0;
     private volatile int phaseStartIndex = 0;
@@ -49,6 +50,7 @@ public final class CallContextMemory {
         ownerPhaseSummaries.clear();
         handoverCount = 0;
         phaseStartIndex = 0;
+        this.peerUserId = peerUserId;
         this.peerName = (peerName == null || peerName.trim().isEmpty()) ? "Caller" : peerName.trim();
         this.serialId = generateSerialId(callId, peerUserId);
         notifyListeners();
@@ -77,7 +79,8 @@ public final class CallContextMemory {
     }
 
     public synchronized void addOrAppendEntry(String role, String text, boolean mergeWithLastSameRole) {
-        if (text == null || text.trim().isEmpty()) return;
+        if (text == null || text.trim().isEmpty())
+            return;
         String clean = text.trim();
         if (mergeWithLastSameRole && !entries.isEmpty()) {
             int lastIdx = entries.size() - 1;
@@ -102,7 +105,8 @@ public final class CallContextMemory {
             aiPhaseSummaries.add(summary);
         }
         phaseStartIndex = entries.size();
-        entries.add(new ChatEntry("SYSTEM", "Owner took over from AI · Local summary saved", System.currentTimeMillis()));
+        entries.add(
+                new ChatEntry("SYSTEM", "Owner took over from AI · Local summary saved", System.currentTimeMillis()));
         notifyListeners();
     }
 
@@ -115,7 +119,8 @@ public final class CallContextMemory {
             ownerPhaseSummaries.add(summary);
         }
         phaseStartIndex = entries.size();
-        entries.add(new ChatEntry("SYSTEM", "Returned call to AI with conversation context", System.currentTimeMillis()));
+        entries.add(
+                new ChatEntry("SYSTEM", "Returned call to AI with conversation context", System.currentTimeMillis()));
         notifyListeners();
     }
 
@@ -126,7 +131,8 @@ public final class CallContextMemory {
 
         StringBuilder sb = new StringBuilder();
         sb.append("You are answering a live Telegram voice call on behalf of the owner. ");
-        sb.append("Respond naturally, concisely, and strictly based on the owner's information below.\n");
+        sb.append("Speak naturally in polite Bengali/Banglish or the caller's language, keep replies concise, and follow the owner's information below.\n");
+        sb.append("IMPORTANT: If the input is exactly [UNCLEAR], politely ask the caller to repeat because of background noise (e.g., 'Sorry, shobder karone bujhte parini, ektu abar bolben?').\n");
         if (!profileInstruction.isEmpty()) {
             sb.append("\n[Role & Use-Case Profile: ").append(config.getProfileLabel()).append("]\n")
                     .append(profileInstruction).append("\n");
@@ -136,9 +142,20 @@ public final class CallContextMemory {
                     .append(emotionInstruction).append("\n");
         }
         if (ownerData != null && !ownerData.trim().isEmpty()) {
-            sb.append("\n[Owner Data]\n").append(ownerData.trim()).append("\n");
+            sb.append("\n[Owner Data (Primary)]\n").append(ownerData.trim()).append("\n");
         } else {
-            sb.append("\n[Owner Data]\nThe owner is currently unavailable. Offer to take a message.\n");
+            sb.append("\n[Owner Data (Primary)]\nThe owner is currently unavailable. Offer to take a message.\n");
+        }
+        if (peerUserId != 0L) {
+            CallerProfileStore store = CallerProfileStore.getInstance();
+            String callerData = store.getCallerData(peerUserId);
+            if (!callerData.isEmpty()) {
+                sb.append("\n[Caller Data for ").append(peerName).append("]\n").append(callerData).append("\n");
+            }
+            String rollingMemory = store.getRollingMemory(peerUserId);
+            if (!rollingMemory.isEmpty()) {
+                sb.append("\n[Optional Brief Past-Call Note (2-3 lines, use only if helpful)]\n").append(rollingMemory).append("\n");
+            }
         }
         if (!aiPhaseSummaries.isEmpty()) {
             sb.append("\n[Previous AI Conversation Summary]\n");
@@ -198,12 +215,14 @@ public final class CallContextMemory {
     }
 
     private void notifyListeners() {
-        if (listeners.isEmpty()) return;
+        if (listeners.isEmpty())
+            return;
         AndroidUtilities.runOnUIThread(() -> {
             for (ChatUpdateListener l : listeners) {
                 try {
                     l.onChatUpdated();
-                } catch (Throwable ignored) {}
+                } catch (Throwable ignored) {
+                }
             }
         });
     }
@@ -213,11 +232,14 @@ public final class CallContextMemory {
         int count = 0;
         for (int i = Math.max(0, phaseStartIndex); i < entries.size(); i++) {
             ChatEntry e = entries.get(i);
-            if ("SYSTEM".equals(e.role)) continue;
-            if (count > 0) sb.append(" | ");
+            if ("SYSTEM".equals(e.role))
+                continue;
+            if (count > 0)
+                sb.append(" | ");
             sb.append(e.role).append(": ").append(e.text);
             count++;
-            if (sb.length() > 450) break;
+            if (sb.length() > 450)
+                break;
         }
         return count == 0 ? "" : (label + ": " + sb);
     }

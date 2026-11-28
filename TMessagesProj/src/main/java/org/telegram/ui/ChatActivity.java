@@ -3715,7 +3715,7 @@ public class ChatActivity extends BaseFragment implements
             @Override
             public void onItemClick(final int id) {
                 // CUSTOM_HOOK_START
-                if (org.telegram.custom.aicall.AiCallHooks.onChatMenuItemClick(ChatActivity.this, id)) return;
+                if (org.telegram.custom.aicall.AiCallHooks.onChatMenuItemClick(ChatActivity.this, currentUser, id)) return;
                 // CUSTOM_HOOK_END
                 // the chat's menu is also opened from the sidebar: what it does is in the chat
                 if (id != chat_menu_options && id != chat_menu_topics_panel && id != -1 && topicsPanel != null && topicsPanel.isOpen()) {
@@ -4214,9 +4214,6 @@ public class ChatActivity extends BaseFragment implements
         });
 
         ActionBarMenu menu = actionBar.createMenu();
-        // CUSTOM_HOOK_START
-        org.telegram.custom.aicall.AiCallHooks.onChatMenuCreated(dialog_id, getUserConfig().getClientUserId(), menu);
-        // CUSTOM_HOOK_END
 
         if (chatMode == MODE_QUICK_REPLIES && !QuickRepliesController.isSpecial(quickReplyShortcut)) {
             menu.addItem(edit_quick_reply, R.drawable.group_edit).setContentDescription(LocaleController.getString(R.string.Edit));
@@ -4483,6 +4480,9 @@ public class ChatActivity extends BaseFragment implements
             headerItem.lazilyAddSubItem(rename_business_link, R.drawable.msg_edit, getString(R.string.Rename));
             trackRedHeaderItem(headerItem.lazilyAddSubItem(delete_business_link, R.drawable.msg_delete, getString(R.string.Delete)), true).setColors(Theme.getColor(Theme.key_text_RedRegular), Theme.getColor(Theme.key_text_RedRegular));
         }
+        // CUSTOM_HOOK_START
+        org.telegram.custom.aicall.AiCallHooks.onChatMenuCreated(dialog_id, getUserConfig().getClientUserId(), currentUser, menu, headerItem);
+        // CUSTOM_HOOK_END
         if (ChatObject.isForum(currentChat) && isTopic && getParentLayout() != null && getParentLayout().getFragmentStack() != null && chatMode == MODE_DEFAULT) {
             boolean hasMyForum = false;
             for (int i = 0; i < getParentLayout().getFragmentStack().size(); ++i) {
