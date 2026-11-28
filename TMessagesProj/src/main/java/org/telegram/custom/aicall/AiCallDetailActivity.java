@@ -1,7 +1,11 @@
 package org.telegram.custom.aicall;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.media.MediaPlayer;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -22,7 +26,6 @@ import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.HeaderCell;
-import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
@@ -33,9 +36,9 @@ import java.util.Date;
 import java.util.Locale;
 
 /**
- * Premium Telegram-style Call Detail screen with 2 tabs:
- * Tab 1: Recording & Chat Transcript (WAV player + chat bubble replay)
- * Tab 2: AI Summary in Bengali (Bengali Voice Summary player + Text explanation + 2-3 line Caller Memory)
+ * Native Telegram-style Call Detail screen with two tabs:
+ * 1. Recording & Chat: Telegram voice-note style audio player + authentic asymmetric chat bubbles.
+ * 2. বাংলা সামারি: Bengali Voice Summary player + formatted Bengali explanation + Caller Memory card.
  */
 public class AiCallDetailActivity extends BaseFragment {
     private static final String TAG = "AiCallDetailActivity";
@@ -46,13 +49,14 @@ public class AiCallDetailActivity extends BaseFragment {
 
     private TextView tabRecordBtn;
     private TextView tabSummaryBtn;
-    private View tabRecordIndicator;
-    private View tabSummaryIndicator;
     private LinearLayout recordTabContent;
     private LinearLayout summaryTabContent;
 
-    private TextView playCallBtn;
-    private TextView playSummaryVoiceBtn;
+    private TextView playCallCircleBtn;
+    private TextView playSummaryCircleBtn;
+    private TextView callPlayerSubtitle;
+    private TextView summaryPlayerSubtitle;
+    private TextView callerDataBody;
     private TextView rollingMemoryView;
 
     public AiCallDetailActivity(AiCallHistoryStore.CallRecord record) {
@@ -61,10 +65,13 @@ public class AiCallDetailActivity extends BaseFragment {
 
     @Override
     public View createView(Context context) {
+        SimpleDateFormat dateFmt = new SimpleDateFormat("dd MMM, HH:mm", Locale.US);
+        String subtitle = formatDuration(record.durationSec) + " · " + dateFmt.format(new Date(record.startedAtMs));
+
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
-        actionBar.setTitle(record.peerName);
-        actionBar.setSubtitle(record.serialId);
+        actionBar.setTitle(record.peerName != null && !record.peerName.isEmpty() ? record.peerName : "Caller");
+        actionBar.setSubtitle(subtitle);
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
             public void onItemClick(int id) {
@@ -78,360 +85,514 @@ public class AiCallDetailActivity extends BaseFragment {
         outerRoot.setOrientation(LinearLayout.VERTICAL);
         outerRoot.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundGray));
 
-        // --- Top 2-Tab Bar ---
-        LinearLayout tabBar = new LinearLayout(context);
-        tabBar.setOrientation(LinearLayout.HORIZONTAL);
-        tabBar.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-        outerRoot.addView(tabBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
+        // --- Segmented Telegram Pill Switcher ---
+        FrameLayout pillOuter = new FrameLayout(context);
+        pillOuter.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+        pillOuter.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(8), AndroidUtilities.dp(16), AndroidUtilities.dp(10));
+        outerRoot.addView(pillOuter, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-        LinearLayout tab1Wrap = new LinearLayout(context);
-        tab1Wrap.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout pillTrack = new LinearLayout(context);
+        pillTrack.setOrientation(LinearLayout.HORIZONTAL);
+        pillTrack.setPadding(AndroidUtilities.dp(3), AndroidUtilities.dp(3), AndroidUtilities.dp(3), AndroidUtilities.dp(3));
+        GradientDrawable trackBg = new GradientDrawable();
+        trackBg.setCornerRadius(AndroidUtilities.dp(12));
+        trackBg.setColor(Theme.getColor(Theme.key_windowBackgroundGray));
+        pillTrack.setBackground(trackBg);
+        pillOuter.addView(pillTrack, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 40));
+
         tabRecordBtn = new TextView(context);
         tabRecordBtn.setText("Recording & Chat");
-        tabRecordBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        tabRecordBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13.5f);
         tabRecordBtn.setTypeface(AndroidUtilities.bold());
         tabRecordBtn.setGravity(Gravity.CENTER);
-        tab1Wrap.addView(tabRecordBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f));
-        tabRecordIndicator = new View(context);
-        tabRecordIndicator.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader));
-        tab1Wrap.addView(tabRecordIndicator, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 3));
-        tab1Wrap.setOnClickListener(v -> selectTab(0));
-        tabBar.addView(tab1Wrap, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f));
+        tabRecordBtn.setOnClickListener(v -> selectTab(0));
+        pillTrack.addView(tabRecordBtn, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f));
 
-        LinearLayout tab2Wrap = new LinearLayout(context);
-        tab2Wrap.setOrientation(LinearLayout.VERTICAL);
         tabSummaryBtn = new TextView(context);
-        tabSummaryBtn.setText("AI Summary (বাংলা)");
-        tabSummaryBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        tabSummaryBtn.setText("বাংলা সামারি");
+        tabSummaryBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13.5f);
         tabSummaryBtn.setTypeface(AndroidUtilities.bold());
         tabSummaryBtn.setGravity(Gravity.CENTER);
-        tab2Wrap.addView(tabSummaryBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f));
-        tabSummaryIndicator = new View(context);
-        tabSummaryIndicator.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader));
-        tab2Wrap.addView(tabSummaryIndicator, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 3));
-        tab2Wrap.setOnClickListener(v -> selectTab(1));
-        tabBar.addView(tab2Wrap, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f));
+        tabSummaryBtn.setOnClickListener(v -> selectTab(1));
+        pillTrack.addView(tabSummaryBtn, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f));
 
-        View div = new View(context);
-        div.setBackgroundColor(Theme.getColor(Theme.key_divider));
-        outerRoot.addView(div, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1));
+        View topDivider = new View(context);
+        topDivider.setBackgroundColor(Theme.getColor(Theme.key_divider));
+        outerRoot.addView(topDivider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1));
 
-        // --- Scrollable Tab Body ---
-        ScrollView scrollView = new ScrollView(context);
-        scrollView.setFillViewport(true);
-        outerRoot.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f));
+        // --- Content ScrollView ---
+        ScrollView scroll = new ScrollView(context);
+        scroll.setFillViewport(true);
+        outerRoot.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f));
 
-        FrameLayout bodyHost = new FrameLayout(context);
-        scrollView.addView(bodyHost, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout tabContainer = new FrameLayout(context);
+        scroll.addView(tabContainer, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        recordTabContent = buildRecordAndChatTab(context);
-        summaryTabContent = buildBengaliSummaryTab(context);
-        bodyHost.addView(recordTabContent, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-        bodyHost.addView(summaryTabContent, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        recordTabContent = buildRecordTab(context);
+        summaryTabContent = buildSummaryTab(context);
+        tabContainer.addView(recordTabContent, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        tabContainer.addView(summaryTabContent, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         selectTab(0);
         fragmentView = outerRoot;
         return fragmentView;
     }
 
-    private LinearLayout buildRecordAndChatTab(Context context) {
-        LinearLayout tab = new LinearLayout(context);
-        tab.setOrientation(LinearLayout.VERTICAL);
+    private LinearLayout buildRecordTab(Context context) {
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(12), AndroidUtilities.dp(14), AndroidUtilities.dp(24));
 
         // Call Recording Player Card
-        LinearLayout playerCard = new LinearLayout(context);
-        playerCard.setOrientation(LinearLayout.VERTICAL);
-        playerCard.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-        playerCard.setPadding(AndroidUtilities.dp(18), AndroidUtilities.dp(14), AndroidUtilities.dp(18), AndroidUtilities.dp(14));
-        tab.addView(playerCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        boolean hasRecording = record.audioFilePath != null && new File(record.audioFilePath).exists();
+        LinearLayout playerCard = createCard(context);
+        playerCard.setOrientation(LinearLayout.HORIZONTAL);
+        playerCard.setGravity(Gravity.CENTER_VERTICAL);
+        playerCard.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(12), AndroidUtilities.dp(14), AndroidUtilities.dp(12));
 
-        String dateStr = new SimpleDateFormat("dd MMM yyyy · HH:mm:ss", Locale.US).format(new Date(record.startedAtMs));
-        TextView meta = new TextView(context);
-        meta.setText("Serial ID: " + record.serialId + "\n" + dateStr + " · " + record.direction
-                + " · " + record.durationSec + "s · Handovers: " + record.handoverCount);
-        meta.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
-        meta.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-        playerCard.addView(meta, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        playCallCircleBtn = new TextView(context);
+        playCallCircleBtn.setText("▶");
+        playCallCircleBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        playCallCircleBtn.setTextColor(Color.WHITE);
+        playCallCircleBtn.setGravity(Gravity.CENTER);
+        playCallCircleBtn.setBackground(createCircleRipple(hasRecording ? 0xFF2AABEE : 0xFF94A3B8, 0x44FFFFFF));
+        playCallCircleBtn.setEnabled(hasRecording);
+        playCallCircleBtn.setOnClickListener(v -> togglePlayback(1, record.audioFilePath));
+        playerCard.addView(playCallCircleBtn, LayoutHelper.createLinear(44, 44, 0, 0, 14, 0));
 
-        boolean hasCallAudio = !TextUtils.isEmpty(record.audioFilePath) && new File(record.audioFilePath).exists();
-        playCallBtn = createPillButton(context,
-                hasCallAudio ? "▶ Play Call Recording (" + record.durationSec + "s)" : "No Call Audio File",
-                hasCallAudio);
-        playCallBtn.setOnClickListener(v -> togglePlayback(1, record.audioFilePath));
-        playerCard.addView(playCallBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 0, 12, 0, 0));
+        LinearLayout infoCol = new LinearLayout(context);
+        infoCol.setOrientation(LinearLayout.VERTICAL);
+        playerCard.addView(infoCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
-        // Full Conversation Chat Transcript
-        HeaderCell chatHeader = new HeaderCell(context);
-        chatHeader.setText("Call Transcript (Chat View)");
-        chatHeader.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-        tab.addView(chatHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 10, 0, 0));
+        TextView title = new TextView(context);
+        title.setText("Call Recording");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15.5f);
+        title.setTypeface(AndroidUtilities.bold());
+        title.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        infoCol.addView(title);
 
-        LinearLayout chatContainer = new LinearLayout(context);
-        chatContainer.setOrientation(LinearLayout.VERTICAL);
-        chatContainer.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(10), AndroidUtilities.dp(12), AndroidUtilities.dp(20));
-        tab.addView(chatContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        callPlayerSubtitle = new TextView(context);
+        callPlayerSubtitle.setText(hasRecording
+                ? ("WAV Audio · " + formatDuration(record.durationSec) + " · Tap to play")
+                : "No local WAV recording saved for this call");
+        callPlayerSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        callPlayerSubtitle.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+        infoCol.addView(callPlayerSubtitle, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
+
+        wrap.addView(playerCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 14));
+
+        // Date / Serial pill centered above bubbles
+        if (record.serialId != null && !record.serialId.isEmpty()) {
+            TextView serialPill = new TextView(context);
+            serialPill.setText("Call ID · " + record.serialId);
+            serialPill.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+            serialPill.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+            serialPill.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(4), AndroidUtilities.dp(12), AndroidUtilities.dp(4));
+            GradientDrawable pillBg = new GradientDrawable();
+            pillBg.setCornerRadius(AndroidUtilities.dp(12));
+            pillBg.setColor(isDarkTheme() ? 0x26FFFFFF : 0x12000000);
+            serialPill.setBackground(pillBg);
+
+            LinearLayout centerWrap = new LinearLayout(context);
+            centerWrap.setGravity(Gravity.CENTER_HORIZONTAL);
+            centerWrap.addView(serialPill);
+            wrap.addView(centerWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
+        }
 
         if (record.messages == null || record.messages.isEmpty()) {
-            TextView noChat = new TextView(context);
-            noChat.setText("No speech transcript lines recorded for this call.");
-            noChat.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-            noChat.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(16), AndroidUtilities.dp(12), AndroidUtilities.dp(16));
-            chatContainer.addView(noChat);
+            TextView empty = new TextView(context);
+            empty.setText("No live transcript messages were captured for this call.");
+            empty.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+            empty.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(32), AndroidUtilities.dp(16), AndroidUtilities.dp(24));
+            wrap.addView(empty);
         } else {
-            SimpleDateFormat tf = new SimpleDateFormat("HH:mm:ss", Locale.US);
+            boolean dark = isDarkTheme();
+            SimpleDateFormat msgTimeFmt = new SimpleDateFormat("HH:mm", Locale.US);
+            int maxWidth = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.78f);
+            if (maxWidth <= 0) {
+                maxWidth = AndroidUtilities.dp(275);
+            }
+            String prevRole = "";
+
             for (CallContextMemory.ChatEntry e : record.messages) {
-                LinearLayout wrap = new LinearLayout(context);
-                wrap.setOrientation(LinearLayout.VERTICAL);
                 if ("SYSTEM".equals(e.role)) {
-                    wrap.setGravity(Gravity.CENTER_HORIZONTAL);
-                    TextView pill = new TextView(context);
-                    pill.setText(e.text);
-                    pill.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
-                    pill.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-                    pill.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(12), 0x22000000));
-                    pill.setPadding(AndroidUtilities.dp(10), AndroidUtilities.dp(4), AndroidUtilities.dp(10), AndroidUtilities.dp(4));
-                    wrap.addView(pill);
-                } else {
-                    boolean isLeft = "CALLER".equals(e.role);
-                    wrap.setGravity(isLeft ? Gravity.START : Gravity.END);
-                    LinearLayout bubble = new LinearLayout(context);
-                    bubble.setOrientation(LinearLayout.VERTICAL);
-                    int bg = isLeft ? Theme.getColor(Theme.key_windowBackgroundWhite) : ("OWNER".equals(e.role) ? 0xFFDCF8C6 : 0xFFE3ECFF);
-                    GradientDrawable gd = new GradientDrawable();
-                    gd.setColor(bg);
-                    gd.setCornerRadius(AndroidUtilities.dp(16));
-                    bubble.setBackground(gd);
-                    bubble.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(8), AndroidUtilities.dp(12), AndroidUtilities.dp(8));
+                    TextView sys = new TextView(context);
+                    sys.setText(e.text);
+                    sys.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+                    sys.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+                    sys.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(4), AndroidUtilities.dp(12), AndroidUtilities.dp(4));
+                    GradientDrawable sBg = new GradientDrawable();
+                    sBg.setCornerRadius(AndroidUtilities.dp(12));
+                    sBg.setColor(dark ? 0x22FFFFFF : 0x10000000);
+                    sys.setBackground(sBg);
 
-                    TextView metaTxt = new TextView(context);
-                    metaTxt.setText(e.role + " · " + tf.format(new Date(e.timestampMs)));
-                    metaTxt.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
-                    metaTxt.setTextColor(isLeft ? Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader) : 0xFF334155);
-                    bubble.addView(metaTxt);
-
-                    TextView bodyTxt = new TextView(context);
-                    bodyTxt.setText(e.text);
-                    bodyTxt.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
-                    bodyTxt.setTextColor(isLeft ? Theme.getColor(Theme.key_windowBackgroundWhiteBlackText) : 0xFF111827);
-                    bodyTxt.setMaxWidth(AndroidUtilities.dp(275));
-                    bodyTxt.setTextIsSelectable(true);
-                    bubble.addView(bodyTxt);
-                    wrap.addView(bubble);
+                    LinearLayout center = new LinearLayout(context);
+                    center.setGravity(Gravity.CENTER_HORIZONTAL);
+                    center.addView(sys);
+                    wrap.addView(center, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 6));
+                    prevRole = e.role;
+                    continue;
                 }
-                chatContainer.addView(wrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 4));
+
+                boolean isCaller = "CALLER".equals(e.role);
+                boolean isOwner = "OWNER".equals(e.role);
+                boolean showSender = !e.role.equals(prevRole);
+
+                LinearLayout row = new LinearLayout(context);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(isCaller ? Gravity.START : Gravity.END);
+
+                LinearLayout bubble = new LinearLayout(context);
+                bubble.setOrientation(LinearLayout.VERTICAL);
+                bubble.setPadding(AndroidUtilities.dp(13), AndroidUtilities.dp(8), AndroidUtilities.dp(12), AndroidUtilities.dp(7));
+                bubble.setBackground(createTranscriptBubbleBg(dark, isCaller, isOwner));
+
+                if (showSender) {
+                    TextView sender = new TextView(context);
+                    if (isCaller) {
+                        sender.setText(record.peerName != null && !record.peerName.isEmpty() ? record.peerName : "Caller");
+                        sender.setTextColor(dark ? 0xFF64B5F6 : 0xFF1D74D2);
+                    } else if (isOwner) {
+                        sender.setText("You");
+                        sender.setTextColor(dark ? 0xFF86EFAC : 0xFF15803D);
+                    } else {
+                        sender.setText("AI Assistant");
+                        sender.setTextColor(dark ? 0xFFBAE6FD : 0xFF0369A1);
+                    }
+                    sender.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+                    sender.setTypeface(AndroidUtilities.bold());
+                    bubble.addView(sender, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 2));
+                }
+
+                TextView msgTv = new TextView(context);
+                msgTv.setText(e.text);
+                msgTv.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+                msgTv.setTextColor(dark ? Color.WHITE : 0xFF111827);
+                msgTv.setMaxWidth(maxWidth);
+                msgTv.setLineSpacing(AndroidUtilities.dp(2), 1f);
+                msgTv.setTextIsSelectable(true);
+                bubble.addView(msgTv);
+
+                TextView tsTv = new TextView(context);
+                tsTv.setText(msgTimeFmt.format(new Date(e.timestampMs)));
+                tsTv.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
+                tsTv.setTextColor(dark ? 0x99DCEBFA : 0xFF64748B);
+                tsTv.setGravity(Gravity.END);
+                bubble.addView(tsTv, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
+
+                row.addView(bubble, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+                wrap.addView(row, LayoutHelper.createLinear(
+                        LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, showSender ? 6 : 2, 0, 2));
+                prevRole = e.role;
             }
         }
-        return tab;
+        return wrap;
     }
 
-    private LinearLayout buildBengaliSummaryTab(Context context) {
-        LinearLayout tab = new LinearLayout(context);
-        tab.setOrientation(LinearLayout.VERTICAL);
+    private LinearLayout buildSummaryTab(Context context) {
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(12), AndroidUtilities.dp(14), AndroidUtilities.dp(24));
 
-        // 1. Bengali AI Voice Summary Player
-        LinearLayout voiceCard = new LinearLayout(context);
-        voiceCard.setOrientation(LinearLayout.VERTICAL);
-        voiceCard.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-        voiceCard.setPadding(AndroidUtilities.dp(18), AndroidUtilities.dp(14), AndroidUtilities.dp(18), AndroidUtilities.dp(14));
-        tab.addView(voiceCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        // Bengali Voice Summary Card
+        boolean hasVoice = record.summaryAudioFilePath != null && new File(record.summaryAudioFilePath).exists();
+        LinearLayout voiceCard = createCard(context);
+        voiceCard.setOrientation(LinearLayout.HORIZONTAL);
+        voiceCard.setGravity(Gravity.CENTER_VERTICAL);
+        voiceCard.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(12), AndroidUtilities.dp(14), AndroidUtilities.dp(12));
 
-        HeaderCell voiceHeader = new HeaderCell(context, Theme.key_windowBackgroundWhiteBlueHeader, 0, 0, false);
-        voiceHeader.setText("বাংলা ভয়েস সামারি (AI Explanation)");
-        voiceCard.addView(voiceHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        playSummaryCircleBtn = new TextView(context);
+        playSummaryCircleBtn.setText("▶");
+        playSummaryCircleBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        playSummaryCircleBtn.setTextColor(Color.WHITE);
+        playSummaryCircleBtn.setGravity(Gravity.CENTER);
+        playSummaryCircleBtn.setBackground(createCircleRipple(hasVoice ? 0xFF10B981 : 0xFF94A3B8, 0x44FFFFFF));
+        playSummaryCircleBtn.setEnabled(hasVoice);
+        playSummaryCircleBtn.setOnClickListener(v -> togglePlayback(2, record.summaryAudioFilePath));
+        voiceCard.addView(playSummaryCircleBtn, LayoutHelper.createLinear(44, 44, 0, 0, 14, 0));
 
-        boolean hasSummaryAudio = !TextUtils.isEmpty(record.summaryAudioFilePath) && new File(record.summaryAudioFilePath).exists();
-        playSummaryVoiceBtn = createPillButton(context,
-                hasSummaryAudio ? "🔊 বাংলা ভয়েস সামারি শুনুন" : "Voice Summary Unavailable",
-                hasSummaryAudio);
-        playSummaryVoiceBtn.setOnClickListener(v -> togglePlayback(2, record.summaryAudioFilePath));
-        voiceCard.addView(playSummaryVoiceBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 0, 8, 0, 0));
+        LinearLayout vCol = new LinearLayout(context);
+        vCol.setOrientation(LinearLayout.VERTICAL);
+        voiceCard.addView(vCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
-        // 2. Detailed Bengali Text Summary
-        LinearLayout textCard = new LinearLayout(context);
+        TextView vTitle = new TextView(context);
+        vTitle.setText("বাংলা ভয়েস সামারি");
+        vTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15.5f);
+        vTitle.setTypeface(AndroidUtilities.bold());
+        vTitle.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        vCol.addView(vTitle);
+
+        summaryPlayerSubtitle = new TextView(context);
+        summaryPlayerSubtitle.setText(hasVoice
+                ? "AI Bengali Audio Explanation · Tap to play"
+                : "Bengali voice explanation not available for this call");
+        summaryPlayerSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        summaryPlayerSubtitle.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+        vCol.addView(summaryPlayerSubtitle, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
+
+        wrap.addView(voiceCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
+
+        // Detailed Bengali Text Summary Card
+        LinearLayout textCard = createCard(context);
         textCard.setOrientation(LinearLayout.VERTICAL);
-        textCard.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-        textCard.setPadding(0, 0, 0, AndroidUtilities.dp(16));
-        tab.addView(textCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 10, 0, 0));
 
         HeaderCell sumHeader = new HeaderCell(context);
-        sumHeader.setText("বিস্তারিত বাংলা টেক্সট সামারি");
-        textCard.addView(sumHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        sumHeader.setText("কল সামারি (বাংলা)");
+        textCard.addView(sumHeader);
 
         TextView sumBody = new TextView(context);
-        sumBody.setText(TextUtils.isEmpty(record.detailedSummary) ? "কোনো সামারি পাওয়া যায়নি।" : record.detailedSummary);
+        String bodyText = (record.detailedSummary != null && !record.detailedSummary.trim().isEmpty())
+                ? record.detailedSummary.trim()
+                : "এই কলটির বিস্তারিত বাংলা সামারি এখনো পাওয়া যায়নি।";
+        sumBody.setText(bodyText);
         sumBody.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
         sumBody.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
-        sumBody.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(4), AndroidUtilities.dp(21), 0);
+        sumBody.setLineSpacing(AndroidUtilities.dp(4.5f), 1f);
         sumBody.setTextIsSelectable(true);
-        textCard.addView(sumBody, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        sumBody.setPadding(AndroidUtilities.dp(18), AndroidUtilities.dp(4), AndroidUtilities.dp(18), AndroidUtilities.dp(16));
+        textCard.addView(sumBody);
+        wrap.addView(textCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
 
-        // 3. Per-Caller Short Rolling Memory & Caller Data
-        LinearLayout memCard = new LinearLayout(context);
-        memCard.setOrientation(LinearLayout.VERTICAL);
-        memCard.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-        memCard.setPadding(0, 0, 0, AndroidUtilities.dp(16));
-        tab.addView(memCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 10, 0, 0));
+        // Caller Context & 2-3 Line Rolling Memory Card
+        LinearLayout callerCard = createCard(context);
+        callerCard.setOrientation(LinearLayout.VERTICAL);
 
         HeaderCell memHeader = new HeaderCell(context);
-        memHeader.setText("কলারের শর্ট মেমোরি ও পার্সোনাল ডেটা");
-        memCard.addView(memHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        memHeader.setText("Caller Context & Memory");
+        callerCard.addView(memHeader);
+
+        CallerProfileStore profileStore = CallerProfileStore.getInstance();
+        String manualData = profileStore.getCallerData(record.peerUserId);
+        String rolling = profileStore.getRollingMemory(record.peerUserId);
+
+        callerDataBody = new TextView(context);
+        callerDataBody.setText(manualData.isEmpty()
+                ? "Caller Note: Not set (tap Edit Note below to tell AI how to talk with this person)."
+                : ("Caller Note: " + manualData));
+        callerDataBody.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13.5f);
+        callerDataBody.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        callerDataBody.setLineSpacing(AndroidUtilities.dp(3), 1f);
+        callerDataBody.setPadding(AndroidUtilities.dp(18), AndroidUtilities.dp(2), AndroidUtilities.dp(18), AndroidUtilities.dp(8));
+        callerCard.addView(callerDataBody);
 
         rollingMemoryView = new TextView(context);
-        String mem = CallerProfileStore.getInstance().getRollingMemory(record.peerUserId);
-        String cData = CallerProfileStore.getInstance().getCallerData(record.peerUserId);
-        rollingMemoryView.setText("2-3 Line Auto Memory:\n" + (mem.isEmpty() ? "(Empty)" : mem)
-                + "\n\nManual Caller Data:\n" + (cData.isEmpty() ? "(Not set)" : cData));
+        rollingMemoryView.setText(rolling.isEmpty()
+                ? "Past Call Memory (2-3 Lines): Empty"
+                : ("Past Call Memory:\n" + rolling));
         rollingMemoryView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
         rollingMemoryView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-        rollingMemoryView.setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(4), AndroidUtilities.dp(21), AndroidUtilities.dp(10));
-        memCard.addView(rollingMemoryView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        rollingMemoryView.setLineSpacing(AndroidUtilities.dp(3), 1f);
+        rollingMemoryView.setPadding(AndroidUtilities.dp(18), 0, AndroidUtilities.dp(18), AndroidUtilities.dp(12));
+        callerCard.addView(rollingMemoryView);
 
-        if (record.peerUserId != 0L) {
-            TextView editCallerBtn = createPillButton(context, "Edit Caller Data for " + record.peerName, true);
-            editCallerBtn.setOnClickListener(v -> showEditCallerDataDialog(context));
-            memCard.addView(editCallerBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 42, 21, 0, 21, 0));
-        }
+        LinearLayout actionRow = new LinearLayout(context);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setPadding(AndroidUtilities.dp(18), 0, AndroidUtilities.dp(18), AndroidUtilities.dp(14));
 
-        TextInfoPrivacyCell note = new TextInfoPrivacyCell(context);
-        note.setText("Auto 2-3 line memory acts only as light background context for future calls and never overrides your primary Owner Data.");
-        tab.addView(note, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        TextView editNoteBtn = createPillActionButton(context, "Edit Caller Note", 0xFF2AABEE);
+        editNoteBtn.setOnClickListener(v -> showEditCallerNoteDialog(context));
+        actionRow.addView(editNoteBtn, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 34, 0, 0, 10, 0));
 
-        return tab;
+        TextView clearMemBtn = createPillActionButton(context, "Clear Memory", 0xFFEF4444);
+        clearMemBtn.setOnClickListener(v -> {
+            CallerProfileStore.getInstance().clearRollingMemory(record.peerUserId);
+            rollingMemoryView.setText("Past Call Memory (2-3 Lines): Cleared");
+            BulletinFactory.of(this).createSimpleBulletin(R.raw.contact_check, "Cleared 2-3 line past-call memory").show();
+        });
+        actionRow.addView(clearMemBtn, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 34));
+
+        callerCard.addView(actionRow);
+        wrap.addView(callerCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        return wrap;
     }
 
-    private void showEditCallerDataDialog(Context context) {
-        final CallerProfileStore store = CallerProfileStore.getInstance();
-        final EditTextBoldCursor input = new EditTextBoldCursor(context);
-        input.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
-        input.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
-        input.setHintColor(Theme.getColor(Theme.key_dialogTextHint));
-        input.setHint("e.g. Boss, speak formally; or Friend, casual tone...");
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        input.setMinLines(3);
-        input.setMaxLines(6);
-        input.setText(store.getCallerData(record.peerUserId));
+    private LinearLayout createCard(Context context) {
+        LinearLayout card = new LinearLayout(context);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(AndroidUtilities.dp(14));
+        bg.setColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+        card.setBackground(bg);
+        return card;
+    }
 
-        FrameLayout box = new FrameLayout(context);
-        box.setPadding(AndroidUtilities.dp(20), AndroidUtilities.dp(6), AndroidUtilities.dp(20), AndroidUtilities.dp(6));
-        box.addView(input, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+    private TextView createPillActionButton(Context context, String text, int accentColor) {
+        TextView btn = new TextView(context);
+        btn.setText(text);
+        btn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        btn.setTypeface(AndroidUtilities.bold());
+        btn.setTextColor(accentColor);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(AndroidUtilities.dp(14), 0, AndroidUtilities.dp(14), 0);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(AndroidUtilities.dp(17));
+        bg.setColor((accentColor & 0x00FFFFFF) | 0x1A000000);
+        btn.setBackground(new RippleDrawable(ColorStateList.valueOf((accentColor & 0x00FFFFFF) | 0x33000000), bg, bg));
+        return btn;
+    }
 
+    private void showEditCallerNoteDialog(Context context) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Caller Data: " + record.peerName);
-        builder.setView(box);
+        builder.setTitle("Caller Note · " + record.peerName);
+        builder.setMessage("Tell AI who this caller is and how to reply to them in future calls.");
+
+        EditTextBoldCursor edit = new EditTextBoldCursor(context);
+        edit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        edit.setText(CallerProfileStore.getInstance().getCallerData(record.peerUserId));
+        edit.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        edit.setHint("e.g. Close friend — answer casually in Banglish");
+        edit.setHintTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+        edit.setMinLines(3);
+        edit.setMaxLines(6);
+        edit.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        int pad = AndroidUtilities.dp(18);
+        edit.setPadding(pad, AndroidUtilities.dp(8), pad, AndroidUtilities.dp(8));
+        builder.setView(edit);
+
         builder.setPositiveButton("Save", (d, w) -> {
-            String val = input.getText() != null ? input.getText().toString().trim() : "";
-            store.setCallerData(record.peerUserId, val);
-            String mem = store.getRollingMemory(record.peerUserId);
-            rollingMemoryView.setText("2-3 Line Auto Memory:\n" + (mem.isEmpty() ? "(Empty)" : mem)
-                    + "\n\nManual Caller Data:\n" + (val.isEmpty() ? "(Not set)" : val));
-            BulletinFactory.of(this).createSimpleBulletin(R.raw.contact_check, "Caller data saved").show();
-        });
-        builder.setNeutralButton("Clear Auto Memory", (d, w) -> {
-            store.clearRollingMemory(record.peerUserId);
-            String cData = store.getCallerData(record.peerUserId);
-            rollingMemoryView.setText("2-3 Line Auto Memory:\n(Cleared)\n\nManual Caller Data:\n" + (cData.isEmpty() ? "(Not set)" : cData));
+            String next = edit.getText().toString().trim();
+            CallerProfileStore.getInstance().setCallerData(record.peerUserId, next);
+            callerDataBody.setText(next.isEmpty()
+                    ? "Caller Note: Not set (tap Edit Note below to tell AI how to talk with this person)."
+                    : ("Caller Note: " + next));
+            BulletinFactory.of(this).createSimpleBulletin(R.raw.contact_check, "Caller note saved").show();
         });
         builder.setNegativeButton("Cancel", null);
         showDialog(builder.create());
     }
 
-    private void selectTab(int index) {
-        int activeText = Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader);
-        int inactiveText = Theme.getColor(Theme.key_windowBackgroundWhiteGrayText);
-        if (index == 0) {
-            recordTabContent.setVisibility(View.VISIBLE);
-            summaryTabContent.setVisibility(View.GONE);
-            tabRecordBtn.setTextColor(activeText);
-            tabSummaryBtn.setTextColor(inactiveText);
-            tabRecordIndicator.setVisibility(View.VISIBLE);
-            tabSummaryIndicator.setVisibility(View.INVISIBLE);
+    private void selectTab(int idx) {
+        recordTabContent.setVisibility(idx == 0 ? View.VISIBLE : View.GONE);
+        summaryTabContent.setVisibility(idx == 1 ? View.VISIBLE : View.GONE);
+
+        GradientDrawable activePill = new GradientDrawable();
+        activePill.setCornerRadius(AndroidUtilities.dp(9));
+        activePill.setColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+
+        if (idx == 0) {
+            tabRecordBtn.setBackground(activePill);
+            tabRecordBtn.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader));
+            tabSummaryBtn.setBackground(null);
+            tabSummaryBtn.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
         } else {
-            recordTabContent.setVisibility(View.GONE);
-            summaryTabContent.setVisibility(View.VISIBLE);
-            tabRecordBtn.setTextColor(inactiveText);
-            tabSummaryBtn.setTextColor(activeText);
-            tabRecordIndicator.setVisibility(View.INVISIBLE);
-            tabSummaryIndicator.setVisibility(View.VISIBLE);
+            tabSummaryBtn.setBackground(activePill);
+            tabSummaryBtn.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader));
+            tabRecordBtn.setBackground(null);
+            tabRecordBtn.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
         }
     }
 
     private void togglePlayback(int kind, String path) {
-        if (TextUtils.isEmpty(path) || !new File(path).exists()) {
-            BulletinFactory.of(this).createErrorBulletin("Audio file not found").show();
+        if (playingKind == kind) {
+            stopAudioPlayback();
             return;
         }
-        if (playingKind == kind) {
-            stopPlayback();
+        stopAudioPlayback();
+        if (path == null || path.isEmpty() || !new File(path).exists()) {
             return;
         }
         try {
-            stopPlayback();
             mediaPlayer = new MediaPlayer();
             mediaPlayer.setDataSource(path);
-            mediaPlayer.setOnCompletionListener(mp -> stopPlayback());
+            mediaPlayer.setOnCompletionListener(mp -> stopAudioPlayback());
             mediaPlayer.prepare();
             mediaPlayer.start();
             playingKind = kind;
             updatePlayButtons();
         } catch (Throwable t) {
-            CustomLogger.e(TAG, "Error playing audio", t);
-            stopPlayback();
-            BulletinFactory.of(this).createErrorBulletin("Cannot play audio").show();
+            CustomLogger.e(TAG, "Audio playback error for " + path, t);
+            stopAudioPlayback();
         }
     }
 
-    private void stopPlayback() {
-        playingKind = 0;
+    private void stopAudioPlayback() {
         if (mediaPlayer != null) {
             try {
-                mediaPlayer.stop();
-            } catch (Throwable ignored) {}
-            try {
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.stop();
+                }
                 mediaPlayer.release();
-            } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {
+            }
             mediaPlayer = null;
         }
+        playingKind = 0;
         updatePlayButtons();
     }
 
     private void updatePlayButtons() {
-        if (playCallBtn != null) {
-            boolean hasCall = !TextUtils.isEmpty(record.audioFilePath) && new File(record.audioFilePath).exists();
-            if (playingKind == 1) {
-                playCallBtn.setText("⏹ Stop Call Recording");
-            } else {
-                playCallBtn.setText(hasCall ? "▶ Play Call Recording (" + record.durationSec + "s)" : "No Call Audio File");
-            }
+        if (playCallCircleBtn != null) {
+            playCallCircleBtn.setText(playingKind == 1 ? "■" : "▶");
         }
-        if (playSummaryVoiceBtn != null) {
-            boolean hasSum = !TextUtils.isEmpty(record.summaryAudioFilePath) && new File(record.summaryAudioFilePath).exists();
-            if (playingKind == 2) {
-                playSummaryVoiceBtn.setText("⏹ Stop Voice Summary");
-            } else {
-                playSummaryVoiceBtn.setText(hasSum ? "🔊 বাংলা ভয়েস সামারি শুনুন" : "Voice Summary Unavailable");
-            }
+        if (playSummaryCircleBtn != null) {
+            playSummaryCircleBtn.setText(playingKind == 2 ? "■" : "▶");
         }
     }
 
-    private TextView createPillButton(Context context, String label, boolean enabled) {
-        TextView btn = new TextView(context);
-        btn.setText(label);
-        btn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
-        btn.setTypeface(AndroidUtilities.bold());
-        btn.setGravity(Gravity.CENTER);
-        btn.setTextColor(0xFFFFFFFF);
-        btn.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
-                AndroidUtilities.dp(10),
-                enabled ? Theme.getColor(Theme.key_featuredStickers_addButton) : 0xFF9CA3AF,
-                enabled ? Theme.getColor(Theme.key_featuredStickers_addButtonPressed) : 0xFF9CA3AF
-        ));
-        btn.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(10), AndroidUtilities.dp(12), AndroidUtilities.dp(10));
-        return btn;
+    private Drawable createTranscriptBubbleBg(boolean dark, boolean isCaller, boolean isOwner) {
+        GradientDrawable gd;
+        if (isCaller) {
+            gd = new GradientDrawable();
+            gd.setColor(dark ? 0xFF1D2938 : 0xFFFFFFFF);
+            gd.setCornerRadii(new float[]{
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(5), r(5)
+            });
+        } else if (isOwner) {
+            gd = new GradientDrawable();
+            gd.setColor(dark ? 0xFF1B5E4B : 0xFFDCFCE7);
+            gd.setCornerRadii(new float[]{
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(5), r(5),
+                    r(18), r(18)
+            });
+        } else {
+            gd = new GradientDrawable();
+            gd.setColor(dark ? 0xFF2B5278 : 0xFFE0F2FE);
+            gd.setCornerRadii(new float[]{
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(5), r(5),
+                    r(18), r(18)
+            });
+        }
+        return gd;
+    }
+
+    private static Drawable createCircleRipple(int fillColor, int rippleColor) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(GradientDrawable.OVAL);
+        shape.setColor(fillColor);
+        return new RippleDrawable(ColorStateList.valueOf(rippleColor), shape, shape);
+    }
+
+    private boolean isDarkTheme() {
+        int bg = Theme.getColor(Theme.key_windowBackgroundWhite);
+        int lum = (Color.red(bg) * 299 + Color.green(bg) * 587 + Color.blue(bg) * 114) / 1000;
+        return lum < 128;
+    }
+
+    private static float r(int dp) {
+        return AndroidUtilities.dp(dp);
+    }
+
+    private static String formatDuration(long durationSec) {
+        if (durationSec <= 0L) {
+            return "0s";
+        }
+        long mins = durationSec / 60L;
+        long secs = durationSec % 60L;
+        return mins > 0 ? String.format(Locale.US, "%dm %02ds", mins, secs) : (secs + "s");
     }
 
     @Override
     public void onFragmentDestroy() {
-        stopPlayback();
+        stopAudioPlayback();
         super.onFragmentDestroy();
     }
 }

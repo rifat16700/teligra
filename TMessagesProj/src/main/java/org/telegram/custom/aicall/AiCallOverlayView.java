@@ -1,20 +1,23 @@
 package org.telegram.custom.aicall;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Bundle;
+import android.graphics.drawable.RippleDrawable;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.ui.ActionBar.Theme;
+import org.telegram.messenger.R;
 import org.telegram.ui.Components.LayoutHelper;
 
 import java.text.SimpleDateFormat;
@@ -23,405 +26,562 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Smooth dark-glass Chat-Style Cover Overlay placed directly over Telegram's
- * native VoIPFragment calling screen. Displays live Caller/AI/Owner bubbles,
- * call timer, handover controls, Anonymous Listen-In, and a Hide/Show pill
- * so the user can peek at the native call UI anytime.
+ * Native Telegram VoIP + Live Chat Call Overlay.
+ * Matches Telegram's dark VoIP gradient canvas, authentic asymmetric chat bubbles,
+ * compact floating minimize pill, and circular VoIP bottom dock controls.
  */
 public final class AiCallOverlayView extends FrameLayout implements CallContextMemory.ChatUpdateListener {
 
-    private final LinearLayout coverRoot;
-    private final TextView floatingShowPill;
-    private final TextView callerTitleView;
-    private final TextView statusPillView;
-    private final TextView timerView;
-    private final TextView hideCoverBtn;
-    private final ScrollView chatScrollView;
-    private final LinearLayout messagesContainer;
-    private final TextView handoverBtn;
-    private final TextView listenBtn;
-    private final TextView endCallBtn;
+    private static final int[] AVATAR_GRADIENTS_TOP = {
+            0xFF4F9CF9, 0xFF8B5CF6, 0xFF10B981, 0xFFF59E0B, 0xFFEC4899, 0xFF06B6D4
+    };
+    private static final int[] AVATAR_GRADIENTS_BOTTOM = {
+            0xFF2563EB, 0xFF6D28D9, 0xFF047857, 0xFFD97706, 0xFFBE185D, 0xFF0E7490
+    };
 
-    private final SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
-    private int renderedCount = 0;
-    private TextView lastRenderedBody = null;
-    private String lastRenderedRole = null;
-    private boolean coverExpanded = false;
-    private boolean timerRunning = false;
+    private final SimpleDateFormat msgTimeFmt = new SimpleDateFormat("HH:mm", Locale.US);
 
-    private final Runnable timerRunnable = new Runnable() {
+    private LinearLayout expandedContainer;
+    private LinearLayout minimizedPill;
+    private TextView avatarView;
+    private TextView peerTitleView;
+    private View statusDotView;
+    private TextView statusTimerView;
+    private TextView miniDotView;
+    private TextView miniLabelView;
+
+    private ScrollView chatScrollView;
+    private LinearLayout chatMessagesContainer;
+
+    private FrameLayout listenBtnCircle;
+    private ImageView listenIcon;
+    private TextView listenLabel;
+
+    private FrameLayout handoverBtnCircle;
+    private ImageView handoverIcon;
+    private TextView handoverLabel;
+
+    private FrameLayout endBtnCircle;
+    private TextView endLabel;
+
+    private boolean isMinimized = false;
+
+    private final Runnable uiTickRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!timerRunning) return;
-            updateHeaderAndButtons();
-            AndroidUtilities.runOnUIThread(this, 1000L);
+            refreshHeaderAndControls();
+            if (getVisibility() == View.VISIBLE) {
+                AndroidUtilities.runOnUIThread(this, 500L);
+            }
         }
     };
 
     public AiCallOverlayView(Context context) {
         super(context);
-        setLayoutParams(new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+        setClickable(true);
+        setFocusable(true);
+        setVisibility(GONE);
+        buildUi(context);
+    }
 
-        // 1. Full-screen Dark-Glass Cover
-        coverRoot = new LinearLayout(context);
-        coverRoot.setOrientation(LinearLayout.VERTICAL);
-        coverRoot.setBackgroundColor(0xF00B0F1A);
-        coverRoot.setClickable(true);
-        coverRoot.setFocusable(true);
-        coverRoot.setPadding(0, AndroidUtilities.statusBarHeight, 0, AndroidUtilities.navigationBarHeight);
-        addView(coverRoot, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+    private void buildUi(Context context) {
+        expandedContainer = new LinearLayout(context);
+        expandedContainer.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable backdrop = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFF0E1621, 0xFF152232, 0xFF0D1520});
+        expandedContainer.setBackground(backdrop);
+        expandedContainer.setClickable(true);
 
-        // Header card
+        // --- Header ---
+        int topPad = Math.max(AndroidUtilities.statusBarHeight, AndroidUtilities.dp(24)) + AndroidUtilities.dp(10);
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12), AndroidUtilities.dp(16), AndroidUtilities.dp(12));
-        header.setBackgroundColor(0xFF121826);
-        coverRoot.addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        header.setPadding(AndroidUtilities.dp(16), topPad, AndroidUtilities.dp(16), AndroidUtilities.dp(12));
+        header.setBackgroundColor(0x33080D14);
+        expandedContainer.addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        avatarView = new TextView(context);
+        avatarView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 17);
+        avatarView.setTypeface(AndroidUtilities.bold());
+        avatarView.setTextColor(Color.WHITE);
+        avatarView.setGravity(Gravity.CENTER);
+        header.addView(avatarView, LayoutHelper.createLinear(44, 44, 0, 0, 12, 0));
 
         LinearLayout titleCol = new LinearLayout(context);
         titleCol.setOrientation(LinearLayout.VERTICAL);
         header.addView(titleCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
-        callerTitleView = new TextView(context);
-        callerTitleView.setTextColor(0xFFFFFFFF);
-        callerTitleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
-        callerTitleView.setTypeface(AndroidUtilities.bold());
-        titleCol.addView(callerTitleView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        peerTitleView = new TextView(context);
+        peerTitleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
+        peerTitleView.setTypeface(AndroidUtilities.bold());
+        peerTitleView.setTextColor(Color.WHITE);
+        peerTitleView.setSingleLine(true);
+        peerTitleView.setEllipsize(TextUtils.TruncateAt.END);
+        titleCol.addView(peerTitleView);
 
-        LinearLayout metaRow = new LinearLayout(context);
-        metaRow.setOrientation(LinearLayout.HORIZONTAL);
-        metaRow.setGravity(Gravity.CENTER_VERTICAL);
-        titleCol.addView(metaRow, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 0));
+        LinearLayout statusRow = new LinearLayout(context);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleCol.addView(statusRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
 
-        statusPillView = new TextView(context);
-        statusPillView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
-        statusPillView.setTextColor(0xFFFFFFFF);
-        statusPillView.setPadding(AndroidUtilities.dp(8), AndroidUtilities.dp(3), AndroidUtilities.dp(8), AndroidUtilities.dp(3));
-        metaRow.addView(statusPillView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        statusDotView = new View(context);
+        statusRow.addView(statusDotView, LayoutHelper.createLinear(8, 8, 0, 0, 6, 0));
 
-        timerView = new TextView(context);
-        timerView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
-        timerView.setTextColor(0xFF94A3B8);
-        timerView.setPadding(AndroidUtilities.dp(10), 0, 0, 0);
-        metaRow.addView(timerView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        statusTimerView = new TextView(context);
+        statusTimerView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        statusTimerView.setTextColor(0xFFB3C7DB);
+        statusTimerView.setSingleLine(true);
+        statusRow.addView(statusTimerView);
 
-        hideCoverBtn = new TextView(context);
-        hideCoverBtn.setText("Hide Cover");
-        hideCoverBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
-        hideCoverBtn.setTextColor(0xFFE2E8F0);
-        hideCoverBtn.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(16), 0x26FFFFFF));
-        hideCoverBtn.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(7), AndroidUtilities.dp(12), AndroidUtilities.dp(7));
-        hideCoverBtn.setOnClickListener(v -> setCoverExpanded(false, true));
-        header.addView(hideCoverBtn, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        TextView minimizeBtn = new TextView(context);
+        minimizeBtn.setText("⌄");
+        minimizeBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20);
+        minimizeBtn.setTypeface(AndroidUtilities.bold());
+        minimizeBtn.setTextColor(0xFFEAF2FA);
+        minimizeBtn.setGravity(Gravity.CENTER);
+        minimizeBtn.setIncludeFontPadding(false);
+        minimizeBtn.setPadding(0, 0, 0, AndroidUtilities.dp(4));
+        minimizeBtn.setBackground(createCircleRipple(0x24FFFFFF, 0x44FFFFFF));
+        minimizeBtn.setOnClickListener(v -> setMinimized(true));
+        header.addView(minimizeBtn, LayoutHelper.createLinear(38, 38, 8, 0, 0, 0));
 
-        View topDiv = new View(context);
-        topDiv.setBackgroundColor(0x1FFFFFFF);
-        coverRoot.addView(topDiv, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1));
+        View topHairline = new View(context);
+        topHairline.setBackgroundColor(0x16FFFFFF);
+        expandedContainer.addView(topHairline, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1));
 
-        // Scrollable chat area
+        // --- Live Conversation ScrollView ---
         chatScrollView = new ScrollView(context);
-        chatScrollView.setFillViewport(true);
         chatScrollView.setVerticalScrollBarEnabled(false);
-        coverRoot.addView(chatScrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f));
+        chatScrollView.setFillViewport(true);
+        expandedContainer.addView(chatScrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f));
 
-        messagesContainer = new LinearLayout(context);
-        messagesContainer.setOrientation(LinearLayout.VERTICAL);
-        messagesContainer.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(14), AndroidUtilities.dp(14), AndroidUtilities.dp(14));
-        chatScrollView.addView(messagesContainer, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        chatMessagesContainer = new LinearLayout(context);
+        chatMessagesContainer.setOrientation(LinearLayout.VERTICAL);
+        chatMessagesContainer.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(14), AndroidUtilities.dp(14), AndroidUtilities.dp(14));
+        chatScrollView.addView(chatMessagesContainer, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
 
-        // Bottom dock
-        LinearLayout dock = new LinearLayout(context);
-        dock.setOrientation(LinearLayout.HORIZONTAL);
-        dock.setBackgroundColor(0xFF121826);
-        dock.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(12), AndroidUtilities.dp(12), AndroidUtilities.dp(14));
-        coverRoot.addView(dock, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        // --- Bottom Telegram VoIP Circular Dock ---
+        int bottomPad = Math.max(AndroidUtilities.navigationBarHeight, AndroidUtilities.dp(12)) + AndroidUtilities.dp(18);
+        LinearLayout dockWrap = new LinearLayout(context);
+        dockWrap.setOrientation(LinearLayout.VERTICAL);
+        dockWrap.setPadding(AndroidUtilities.dp(20), AndroidUtilities.dp(14), AndroidUtilities.dp(20), bottomPad);
+        GradientDrawable dockBg = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x000A1018, 0xCC0A1018, 0xEE080D14});
+        dockWrap.setBackground(dockBg);
+        expandedContainer.addView(dockWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-        handoverBtn = createDockButton(context, 0xFF4F46E5, 0xFF4338CA);
-        handoverBtn.setOnClickListener(v -> {
-            AiCallSessionState state = AiCallController.getInstance().getState();
-            if (state.getMode() == AiCallSessionState.Mode.IDLE) return;
-            if (state.isAiActive()) {
-                AiCallActionBus.dispatch(AiCallActionBus.ACTION_TAKE_OVER, null);
-            } else {
+        LinearLayout buttonsRow = new LinearLayout(context);
+        buttonsRow.setOrientation(LinearLayout.HORIZONTAL);
+        buttonsRow.setGravity(Gravity.CENTER);
+        dockWrap.addView(buttonsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        // Left: Listen-In Toggle
+        LinearLayout listenCol = createDockColumn(context);
+        listenBtnCircle = createCircleIconContainer(context, R.drawable.msg_voicechat, 24);
+        listenLabel = createDockLabel(context, "Listen");
+        listenCol.addView(listenBtnCircle, LayoutHelper.createLinear(56, 56));
+        listenCol.addView(listenLabel, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 7, 0, 0));
+        listenBtnCircle.setOnClickListener(v -> {
+            AiCallSessionState st = AiCallController.getInstance().getState();
+            boolean nextListen = !st.isAnonymousListenIn();
+            android.os.Bundle extras = new android.os.Bundle();
+            extras.putBoolean(AiCallActionBus.EXTRA_ENABLED, nextListen);
+            AiCallActionBus.dispatch(AiCallActionBus.ACTION_TOGGLE_LISTEN_IN, extras);
+            refreshHeaderAndControls();
+        });
+        buttonsRow.addView(listenCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
+
+        // Center: Primary Take Over / Return to AI
+        LinearLayout handoverCol = createDockColumn(context);
+        handoverBtnCircle = createCircleIconContainer(context, R.drawable.call, 28);
+        handoverLabel = createDockLabel(context, "Take Over");
+        handoverCol.addView(handoverBtnCircle, LayoutHelper.createLinear(66, 66));
+        handoverCol.addView(handoverLabel, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 7, 0, 0));
+        handoverBtnCircle.setOnClickListener(v -> {
+            AiCallSessionState st = AiCallController.getInstance().getState();
+            if (st.getMode() == AiCallSessionState.Mode.OWNER_HANDLING) {
                 AiCallActionBus.dispatch(AiCallActionBus.ACTION_HANDOVER_TO_AI, null);
+            } else {
+                AiCallActionBus.dispatch(AiCallActionBus.ACTION_TAKE_OVER, null);
             }
-            updateHeaderAndButtons();
+            refreshHeaderAndControls();
         });
-        dock.addView(handoverBtn, LayoutHelper.createLinear(0, 46, 1.25f, 0, 0, 8, 0));
+        buttonsRow.addView(handoverCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
-        listenBtn = createDockButton(context, 0xFF334155, 0xFF1E293B);
-        listenBtn.setOnClickListener(v -> {
-            AiCallSessionState state = AiCallController.getInstance().getState();
-            if (state.getMode() == AiCallSessionState.Mode.IDLE) return;
-            Bundle b = new Bundle();
-            b.putBoolean(AiCallActionBus.EXTRA_ENABLED, !state.isAnonymousListenIn());
-            AiCallActionBus.dispatch(AiCallActionBus.ACTION_TOGGLE_LISTEN_IN, b);
-            updateHeaderAndButtons();
-        });
-        dock.addView(listenBtn, LayoutHelper.createLinear(0, 46, 1.1f, 0, 0, 8, 0));
+        // Right: End Call
+        LinearLayout endCol = createDockColumn(context);
+        endBtnCircle = createCircleIconContainer(context, R.drawable.ic_call_end_white_24dp, 26);
+        endBtnCircle.setBackground(createCircleRipple(0xFFEF4444, 0x66FFFFFF));
+        endLabel = createDockLabel(context, "End Call");
+        endCol.addView(endBtnCircle, LayoutHelper.createLinear(56, 56));
+        endCol.addView(endLabel, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 7, 0, 0));
+        endBtnCircle.setOnClickListener(v -> AiCallActionBus.dispatch(AiCallActionBus.ACTION_END_CALL, null));
+        buttonsRow.addView(endCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
-        endCallBtn = createDockButton(context, 0xFFDC2626, 0xFFB91C1C);
-        endCallBtn.setText("End Call");
-        endCallBtn.setOnClickListener(v -> AiCallActionBus.dispatch(AiCallActionBus.ACTION_END_CALL, null));
-        dock.addView(endCallBtn, LayoutHelper.createLinear(0, 46, 0.85f));
+        addView(expandedContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
-        // 2. Floating Pill when cover is hidden (or during normal owner call)
-        floatingShowPill = new TextView(context);
-        floatingShowPill.setText("AI Chat");
-        floatingShowPill.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
-        floatingShowPill.setTypeface(AndroidUtilities.bold());
-        floatingShowPill.setTextColor(0xFFFFFFFF);
-        GradientDrawable pillBg = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF4F46E5, 0xFF7C3AED}
-        );
-        pillBg.setCornerRadius(AndroidUtilities.dp(20));
-        floatingShowPill.setBackground(pillBg);
-        floatingShowPill.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(8), AndroidUtilities.dp(14), AndroidUtilities.dp(8));
-        floatingShowPill.setOnClickListener(v -> setCoverExpanded(true, true));
-        FrameLayout.LayoutParams pillLp = LayoutHelper.createFrame(
-                LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
-                Gravity.TOP | Gravity.END, 0, 14, 14, 0
-        );
-        pillLp.topMargin += AndroidUtilities.statusBarHeight;
-        addView(floatingShowPill, pillLp);
+        // --- Compact Minimized Floating Pill ---
+        minimizedPill = new LinearLayout(context);
+        minimizedPill.setOrientation(LinearLayout.HORIZONTAL);
+        minimizedPill.setGravity(Gravity.CENTER_VERTICAL);
+        minimizedPill.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(9), AndroidUtilities.dp(14), AndroidUtilities.dp(9));
+        GradientDrawable pillBg = new GradientDrawable();
+        pillBg.setCornerRadius(AndroidUtilities.dp(24));
+        pillBg.setColor(0xEE182330);
+        pillBg.setStroke(AndroidUtilities.dp(1), 0x30FFFFFF);
+        minimizedPill.setBackground(pillBg);
+        minimizedPill.setElevation(AndroidUtilities.dp(6));
+        minimizedPill.setVisibility(GONE);
+        minimizedPill.setOnClickListener(v -> setMinimized(false));
 
-        boolean autoExpand = AiCallController.getInstance().getState().isAiActive();
-        setCoverExpanded(autoExpand, false);
-        rebuildMessages();
-        updateHeaderAndButtons();
+        miniDotView = new TextView(context);
+        miniDotView.setText("●");
+        miniDotView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
+        miniDotView.setTextColor(0xFF34D399);
+        minimizedPill.addView(miniDotView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 8, 0));
+
+        miniLabelView = new TextView(context);
+        miniLabelView.setTextColor(Color.WHITE);
+        miniLabelView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13.5f);
+        miniLabelView.setTypeface(AndroidUtilities.bold());
+        miniLabelView.setSingleLine(true);
+        miniLabelView.setEllipsize(TextUtils.TruncateAt.END);
+        minimizedPill.addView(miniLabelView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+
+        LayoutParams pillLp = LayoutHelper.createFrame(
+                LayoutHelper.WRAP_CONTENT,
+                LayoutHelper.WRAP_CONTENT,
+                Gravity.TOP | Gravity.END,
+                16, Math.max(AndroidUtilities.statusBarHeight, AndroidUtilities.dp(20)) + 8, 16, 0);
+        addView(minimizedPill, pillLp);
     }
 
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        AiAudioBridge.getInstance().getMemory().addListener(this);
-        timerRunning = true;
-        AndroidUtilities.runOnUIThread(timerRunnable, 1000L);
-        rebuildMessages();
-        updateHeaderAndButtons();
+    private LinearLayout createDockColumn(Context context) {
+        LinearLayout col = new LinearLayout(context);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        return col;
     }
 
-    @Override
-    protected void onDetachedFromWindow() {
-        timerRunning = false;
-        AndroidUtilities.cancelRunOnUIThread(timerRunnable);
+    private FrameLayout createCircleIconContainer(Context context, int iconRes, int iconSizeDp) {
+        FrameLayout frame = new FrameLayout(context);
+        ImageView icon = new ImageView(context);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(Color.WHITE);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        frame.addView(icon, LayoutHelper.createFrame(iconSizeDp, iconSizeDp, Gravity.CENTER));
+        frame.setTag(icon);
+        return frame;
+    }
+
+    private TextView createDockLabel(Context context, String text) {
+        TextView tv = new TextView(context);
+        tv.setText(text);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12.5f);
+        tv.setTextColor(0xFFD6E2EE);
+        tv.setSingleLine(true);
+        return tv;
+    }
+
+    private void setMinimized(boolean minimized) {
+        this.isMinimized = minimized;
+        if (minimized) {
+            expandedContainer.setVisibility(GONE);
+            minimizedPill.setVisibility(VISIBLE);
+            setClickable(false);
+            setFocusable(false);
+        } else {
+            minimizedPill.setVisibility(GONE);
+            expandedContainer.setVisibility(VISIBLE);
+            setClickable(true);
+            setFocusable(true);
+        }
+    }
+
+    public void showOverlay() {
+        CallContextMemory memory = AiAudioBridge.getInstance().getMemory();
+        memory.addListener(this);
+        isMinimized = false;
+        setMinimized(false);
+        setVisibility(VISIBLE);
+        refreshHeaderAndControls();
+        rebuildChatBubbles();
+        AndroidUtilities.cancelRunOnUIThread(uiTickRunnable);
+        AndroidUtilities.runOnUIThread(uiTickRunnable, 500L);
+    }
+
+    public void hideOverlay() {
+        AndroidUtilities.cancelRunOnUIThread(uiTickRunnable);
         AiAudioBridge.getInstance().getMemory().removeListener(this);
-        super.onDetachedFromWindow();
+        setVisibility(GONE);
     }
 
     @Override
     public void onChatUpdated() {
-        AiCallSessionState state = AiCallController.getInstance().getState();
-        if (state.isAiActive() && !coverExpanded) {
-            setCoverExpanded(true, true);
-        }
-        syncMessagesIncrementally();
-        updateHeaderAndButtons();
-    }
-
-    public void setCoverExpanded(boolean expanded, boolean animate) {
-        this.coverExpanded = expanded;
-        if (expanded) {
-            floatingShowPill.setVisibility(GONE);
-            coverRoot.setVisibility(VISIBLE);
-            if (animate) {
-                coverRoot.setAlpha(0f);
-                coverRoot.animate().alpha(1f).setDuration(200).start();
-            } else {
-                coverRoot.setAlpha(1f);
-            }
-        } else {
-            coverRoot.setVisibility(GONE);
-            floatingShowPill.setVisibility(VISIBLE);
-            if (animate) {
-                floatingShowPill.setAlpha(0f);
-                floatingShowPill.animate().alpha(1f).setDuration(180).start();
-            } else {
-                floatingShowPill.setAlpha(1f);
-            }
+        if (getVisibility() == VISIBLE) {
+            rebuildChatBubbles();
         }
     }
 
-    private void updateHeaderAndButtons() {
+    private void refreshHeaderAndControls() {
         AiCallSessionState state = AiCallController.getInstance().getState();
         CallContextMemory memory = AiAudioBridge.getInstance().getMemory();
-
-        callerTitleView.setText(memory.getPeerName());
-        long started = state.getStartedAtMs();
-        long elapsedSec = started > 0L ? Math.max(0L, (System.currentTimeMillis() - started) / 1000L) : 0L;
-        timerView.setText(String.format(Locale.US, "%02d:%02d", elapsedSec / 60, elapsedSec % 60));
-
-        if (state.getMode() == AiCallSessionState.Mode.IDLE || state.getMode() == AiCallSessionState.Mode.RINGING_TIMER) {
-            statusPillView.setText("● Ringing / Connecting");
-            statusPillView.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(10), 0xFF475569));
-            handoverBtn.setText("Return to AI");
-            listenBtn.setText("Listen: OFF");
-            return;
+        String peerName = memory.getPeerName();
+        if (peerName == null || peerName.trim().isEmpty()) {
+            peerName = "Incoming Call";
         }
 
-        if (state.isAiActive()) {
-            if (state.isAnonymousListenIn()) {
-                statusPillView.setText("● AI Active · Listening");
-                statusPillView.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(10), 0xFFD97706));
-                listenBtn.setText("Listen: ON");
-                listenBtn.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(12), 0xFFD97706, 0xFFB45309));
-            } else {
-                statusPillView.setText("● AI Active · Silent");
-                statusPillView.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(10), 0xFF6366F1));
-                listenBtn.setText("Listen: OFF");
-                listenBtn.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(12), 0xFF334155, 0xFF1E293B));
-            }
-            handoverBtn.setText("Take Over");
-            handoverBtn.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(12), 0xFF059669, 0xFF047857));
-            listenBtn.setEnabled(true);
-            floatingShowPill.setText("AI Live · Open");
+        peerTitleView.setText(peerName);
+        avatarView.setText(getInitials(peerName));
+        int idx = Math.abs(peerName.hashCode()) % AVATAR_GRADIENTS_TOP.length;
+        GradientDrawable avatarBg = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{AVATAR_GRADIENTS_TOP[idx], AVATAR_GRADIENTS_BOTTOM[idx]});
+        avatarBg.setShape(GradientDrawable.OVAL);
+        avatarView.setBackground(avatarBg);
+
+        long elapsedSec = state.getStartedAtMs() > 0L
+                ? Math.max(0L, (System.currentTimeMillis() - state.getStartedAtMs()) / 1000L)
+                : 0L;
+        String timerStr = String.format(Locale.US, "%02d:%02d", elapsedSec / 60L, elapsedSec % 60L);
+
+        String statusText;
+        int dotColor;
+        if (state.getMode() == AiCallSessionState.Mode.RINGING_TIMER) {
+            statusText = "Waiting before AI picks up · " + timerStr;
+            dotColor = 0xFFFBBF24;
+        } else if (state.getMode() == AiCallSessionState.Mode.AI_HANDLING) {
+            statusText = state.isAnonymousListenIn() ? ("AI Answering (Listening) · " + timerStr)
+                    : ("AI Assistant Speaking · " + timerStr);
+            dotColor = 0xFF34D399;
+        } else if (state.getMode() == AiCallSessionState.Mode.OWNER_HANDLING) {
+            statusText = "You are speaking · " + timerStr;
+            dotColor = 0xFF60A5FA;
         } else {
-            statusPillView.setText("● Owner Speaking");
-            statusPillView.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(10), 0xFF059669));
-            handoverBtn.setText("Return to AI");
-            handoverBtn.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(12), 0xFF4F46E5, 0xFF4338CA));
-            listenBtn.setText("Owner Mic");
-            listenBtn.setEnabled(false);
-            listenBtn.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(12), 0xFF1E293B));
-            floatingShowPill.setText("AI Chat");
+            statusText = "Connected · " + timerStr;
+            dotColor = 0xFF94A3B8;
+        }
+
+        GradientDrawable dotDrawable = new GradientDrawable();
+        dotDrawable.setShape(GradientDrawable.OVAL);
+        dotDrawable.setColor(dotColor);
+        statusDotView.setBackground(dotDrawable);
+        statusTimerView.setText(statusText);
+
+        miniDotView.setTextColor(dotColor);
+        miniLabelView.setText(peerName + " · " + timerStr + "  ▴");
+
+        if (state.isAnonymousListenIn()) {
+            listenBtnCircle.setBackground(createCircleRipple(0xFF2AABEE, 0x55FFFFFF));
+            listenLabel.setText("Listening");
+            listenLabel.setTextColor(0xFF7CC8F8);
+        } else {
+            listenBtnCircle.setBackground(createCircleRipple(0xFF223042, 0x44FFFFFF));
+            listenLabel.setText("Listen");
+            listenLabel.setTextColor(0xFFD6E2EE);
+        }
+
+        if (state.getMode() == AiCallSessionState.Mode.OWNER_HANDLING) {
+            GradientDrawable aiGrad = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0xFF22C55E, 0xFF15803D});
+            aiGrad.setShape(GradientDrawable.OVAL);
+            handoverBtnCircle.setBackground(new RippleDrawable(ColorStateList.valueOf(0x55FFFFFF), aiGrad, aiGrad));
+            handoverLabel.setText("Return to AI");
+            handoverLabel.setTextColor(0xFF86EFAC);
+        } else {
+            GradientDrawable takeGrad = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0xFF38BDF8, 0xFF0284C7});
+            takeGrad.setShape(GradientDrawable.OVAL);
+            handoverBtnCircle.setBackground(new RippleDrawable(ColorStateList.valueOf(0x55FFFFFF), takeGrad, takeGrad));
+            handoverLabel.setText("Take Over");
+            handoverLabel.setTextColor(0xFFE0F2FE);
         }
     }
 
-    private void rebuildMessages() {
-        messagesContainer.removeAllViews();
-        renderedCount = 0;
-        lastRenderedBody = null;
-        lastRenderedRole = null;
-        syncMessagesIncrementally();
-    }
-
-    private void syncMessagesIncrementally() {
+    private void rebuildChatBubbles() {
         Context context = getContext();
-        if (context == null) return;
-        List<CallContextMemory.ChatEntry> entries = AiAudioBridge.getInstance().getMemory().getEntriesSnapshot();
+        if (context == null || chatMessagesContainer == null) {
+            return;
+        }
+        chatMessagesContainer.removeAllViews();
 
+        List<CallContextMemory.ChatEntry> entries = AiAudioBridge.getInstance().getMemory().getEntriesSnapshot();
         if (entries.isEmpty()) {
-            if (messagesContainer.getChildCount() == 0) {
-                TextView empty = new TextView(context);
-                empty.setText("Live AI call conversation will appear here...");
-                empty.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
-                empty.setTextColor(0xFF64748B);
-                empty.setGravity(Gravity.CENTER);
-                empty.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(48), AndroidUtilities.dp(16), AndroidUtilities.dp(48));
-                messagesContainer.addView(empty, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-            }
+            LinearLayout emptyWrap = new LinearLayout(context);
+            emptyWrap.setOrientation(LinearLayout.VERTICAL);
+            emptyWrap.setGravity(Gravity.CENTER);
+            emptyWrap.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(80), AndroidUtilities.dp(24), AndroidUtilities.dp(40));
+
+            TextView emptyBadge = new TextView(context);
+            emptyBadge.setText("🎙");
+            emptyBadge.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 26);
+            emptyBadge.setGravity(Gravity.CENTER);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(0x1E2AABEE);
+            emptyBadge.setBackground(circle);
+            emptyWrap.addView(emptyBadge, LayoutHelper.createLinear(58, 58, 0, 0, 0, 12));
+
+            TextView emptyTitle = new TextView(context);
+            emptyTitle.setText("Live Call Transcript");
+            emptyTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+            emptyTitle.setTypeface(AndroidUtilities.bold());
+            emptyTitle.setTextColor(0xFFE2ECF5);
+            emptyTitle.setGravity(Gravity.CENTER);
+            emptyWrap.addView(emptyTitle);
+
+            TextView emptySub = new TextView(context);
+            emptySub.setText("Caller & AI conversation bubbles will appear here in real time.");
+            emptySub.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13.5f);
+            emptySub.setTextColor(0xFF8FA3B8);
+            emptySub.setGravity(Gravity.CENTER);
+            emptyWrap.addView(emptySub, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 0));
+
+            chatMessagesContainer.addView(emptyWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
             return;
         }
 
-        if (renderedCount == 0 && messagesContainer.getChildCount() > 0) {
-            messagesContainer.removeAllViews();
+        String peerName = AiAudioBridge.getInstance().getMemory().getPeerName();
+        String prevRole = "";
+        int maxBubbleWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.76f);
+        if (maxBubbleWidth <= 0) {
+            maxBubbleWidth = AndroidUtilities.dp(270);
         }
 
-        // Update last bubble text smoothly if merged with same speaker
-        if (renderedCount > 0 && renderedCount == entries.size() && lastRenderedBody != null) {
-            CallContextMemory.ChatEntry last = entries.get(entries.size() - 1);
-            if (last.role.equals(lastRenderedRole)) {
-                lastRenderedBody.setText(last.text);
-                chatScrollView.post(() -> chatScrollView.fullScroll(View.FOCUS_DOWN));
-                return;
+        for (int i = 0; i < entries.size(); i++) {
+            CallContextMemory.ChatEntry e = entries.get(i);
+            if ("SYSTEM".equals(e.role)) {
+                TextView sysPill = new TextView(context);
+                sysPill.setText(e.text);
+                sysPill.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+                sysPill.setTextColor(0xFF9FB2C6);
+                sysPill.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(4), AndroidUtilities.dp(12), AndroidUtilities.dp(4));
+                GradientDrawable bg = new GradientDrawable();
+                bg.setCornerRadius(AndroidUtilities.dp(12));
+                bg.setColor(0x661E2C3A);
+                sysPill.setBackground(bg);
+
+                LinearLayout wrap = new LinearLayout(context);
+                wrap.setGravity(Gravity.CENTER_HORIZONTAL);
+                wrap.addView(sysPill);
+                chatMessagesContainer.addView(wrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 8, 0, 8));
+                prevRole = e.role;
+                continue;
             }
-        }
 
-        if (entries.size() < renderedCount) {
-            messagesContainer.removeAllViews();
-            renderedCount = 0;
-            lastRenderedBody = null;
-            lastRenderedRole = null;
-        }
+            boolean isCaller = "CALLER".equals(e.role);
+            boolean isOwner = "OWNER".equals(e.role);
+            boolean showSender = !e.role.equals(prevRole);
 
-        for (int i = renderedCount; i < entries.size(); i++) {
-            CallContextMemory.ChatEntry entry = entries.get(i);
-            View bubbleRow = createAnimatedBubble(context, entry);
-            messagesContainer.addView(bubbleRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 5, 0, 5));
-        }
-        renderedCount = entries.size();
-        chatScrollView.post(() -> chatScrollView.fullScroll(View.FOCUS_DOWN));
-    }
-
-    private View createAnimatedBubble(Context context, CallContextMemory.ChatEntry entry) {
-        LinearLayout wrapper = new LinearLayout(context);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-
-        if ("SYSTEM".equals(entry.role)) {
-            wrapper.setGravity(Gravity.CENTER_HORIZONTAL);
-            TextView pill = new TextView(context);
-            pill.setText(entry.text);
-            pill.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
-            pill.setTextColor(0xFFCBD5E1);
-            pill.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(12), 0x24FFFFFF));
-            pill.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(5), AndroidUtilities.dp(12), AndroidUtilities.dp(5));
-            wrapper.addView(pill, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
-            lastRenderedBody = null;
-            lastRenderedRole = "SYSTEM";
-        } else {
-            boolean isLeft = "CALLER".equals(entry.role);
-            wrapper.setGravity(isLeft ? Gravity.START : Gravity.END);
+            LinearLayout row = new LinearLayout(context);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(isCaller ? Gravity.START : Gravity.END);
 
             LinearLayout bubble = new LinearLayout(context);
             bubble.setOrientation(LinearLayout.VERTICAL);
-            bubble.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(10), AndroidUtilities.dp(14), AndroidUtilities.dp(10));
+            bubble.setPadding(AndroidUtilities.dp(13), AndroidUtilities.dp(8), AndroidUtilities.dp(12), AndroidUtilities.dp(7));
+            bubble.setBackground(createTelegramBubbleBg(isCaller, isOwner));
 
-            if (isLeft) {
-                GradientDrawable bg = new GradientDrawable();
-                bg.setColor(0xFF1E2433);
-                bg.setCornerRadius(AndroidUtilities.dp(18));
-                bg.setStroke(AndroidUtilities.dp(1), 0x1FFFFFFF);
-                bubble.setBackground(bg);
-            } else if ("OWNER".equals(entry.role)) {
-                GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF059669, 0xFF0D9488});
-                bg.setCornerRadius(AndroidUtilities.dp(18));
-                bubble.setBackground(bg);
-            } else {
-                GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF4F46E5, 0xFF7C3AED});
-                bg.setCornerRadius(AndroidUtilities.dp(18));
-                bubble.setBackground(bg);
+            if (showSender) {
+                TextView senderTag = new TextView(context);
+                if (isCaller) {
+                    senderTag.setText(peerName != null && !peerName.isEmpty() ? peerName : "Caller");
+                    senderTag.setTextColor(0xFF64B5F6);
+                } else if (isOwner) {
+                    senderTag.setText("You");
+                    senderTag.setTextColor(0xFF86EFAC);
+                } else {
+                    senderTag.setText("AI Assistant");
+                    senderTag.setTextColor(0xFFBAE6FD);
+                }
+                senderTag.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+                senderTag.setTypeface(AndroidUtilities.bold());
+                bubble.addView(senderTag, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 2));
             }
 
-            TextView meta = new TextView(context);
-            meta.setText(entry.role + " · " + timeFmt.format(new Date(entry.timestampMs)));
-            meta.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 10);
-            meta.setTextColor(isLeft ? 0xFF94A3B8 : 0xFFE0E7FF);
-            bubble.addView(meta, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+            TextView msgView = new TextView(context);
+            msgView.setText(e.text);
+            msgView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+            msgView.setTextColor(Color.WHITE);
+            msgView.setMaxWidth(maxBubbleWidth);
+            msgView.setLineSpacing(AndroidUtilities.dp(2), 1f);
+            bubble.addView(msgView);
 
-            TextView body = new TextView(context);
-            body.setText(entry.text);
-            body.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
-            body.setTextColor(0xFFFFFFFF);
-            body.setMaxWidth(AndroidUtilities.dp(275));
-            bubble.addView(body, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 3, 0, 0));
+            TextView timeView = new TextView(context);
+            timeView.setText(msgTimeFmt.format(new Date(e.timestampMs)));
+            timeView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
+            timeView.setTextColor(isCaller ? 0xFF7D90A4 : 0xB3DCEBFA);
+            timeView.setGravity(Gravity.END);
+            bubble.addView(timeView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
 
-            wrapper.addView(bubble, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
-            lastRenderedBody = body;
-            lastRenderedRole = entry.role;
+            row.addView(bubble, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+            chatMessagesContainer.addView(row, LayoutHelper.createLinear(
+                    LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, showSender ? 7 : 2, 0, 2));
+            prevRole = e.role;
         }
 
-        wrapper.setAlpha(0f);
-        wrapper.setTranslationY(AndroidUtilities.dp(14));
-        wrapper.animate()
-                .alpha(1f)
-                .translationY(0f)
-                .setDuration(220)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
-
-        return wrapper;
+        chatScrollView.post(() -> chatScrollView.fullScroll(View.FOCUS_DOWN));
     }
 
-    private TextView createDockButton(Context context, int bgColor, int pressedColor) {
-        TextView btn = new TextView(context);
-        btn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
-        btn.setTypeface(AndroidUtilities.bold());
-        btn.setTextColor(0xFFFFFFFF);
-        btn.setGravity(Gravity.CENTER);
-        btn.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(12), bgColor, pressedColor));
-        btn.setPadding(AndroidUtilities.dp(8), AndroidUtilities.dp(8), AndroidUtilities.dp(8), AndroidUtilities.dp(8));
-        return btn;
+    private Drawable createTelegramBubbleBg(boolean isCaller, boolean isOwner) {
+        GradientDrawable gd;
+        if (isCaller) {
+            gd = new GradientDrawable();
+            gd.setColor(0xFF1A2634);
+            gd.setCornerRadii(new float[]{
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(5), r(5)
+            });
+        } else if (isOwner) {
+            gd = new GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    new int[]{0xFF195E4B, 0xFF1D6E58});
+            gd.setCornerRadii(new float[]{
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(5), r(5),
+                    r(18), r(18)
+            });
+        } else {
+            gd = new GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    new int[]{0xFF2B5278, 0xFF346796});
+            gd.setCornerRadii(new float[]{
+                    r(18), r(18),
+                    r(18), r(18),
+                    r(5), r(5),
+                    r(18), r(18)
+            });
+        }
+        return gd;
+    }
+
+    private static Drawable createCircleRipple(int fillColor, int rippleColor) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(GradientDrawable.OVAL);
+        shape.setColor(fillColor);
+        return new RippleDrawable(ColorStateList.valueOf(rippleColor), shape, shape);
+    }
+
+    private static float r(int dp) {
+        return AndroidUtilities.dp(dp);
+    }
+
+    private static String getInitials(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "?";
+        }
+        String[] parts = name.trim().split("\\s+");
+        if (parts.length == 1) {
+            return parts[0].substring(0, 1).toUpperCase(Locale.US);
+        }
+        return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase(Locale.US);
     }
 }
